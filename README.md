@@ -12,6 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/macOS_Linux.
 
 
 ## Launch Command Windows
+Stable (recommended)
 ```bash
 powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex"
 ```
