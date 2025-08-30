@@ -28,7 +28,7 @@ function Ensure-Winfetch {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "$($BOLD)$($FG_YELLOW)Winfetch not found. Attempting to install using Winget...$($RESET)"
         try {
-            winget install --id Kde.Winfetch -e --accept-package-agreements --accept-source-agreements | Out-Null
+            Invoke-WebRequest -Uri https://aka.ms/getwinget -OutFile winget.msixbundle
             # Refresh environment variables to find the new command
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
             if (Get-Command winfetch -ErrorAction SilentlyContinue) {
