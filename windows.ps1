@@ -29,9 +29,9 @@ function Ensure-ScoopAndWinfetch {
         Write-Host "$($BOLD)$($FG_YELLOW)Scoop package manager not found. Attempting to install...$($RESET)"
         # Set execution policy to allow installation script to run
         try {
-            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
             # Download and run the Scoop installer using the recommended modern method
-            irm get.scoop.sh | iex
+            Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
             Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
         }
         catch {
