@@ -97,7 +97,7 @@ DNS_SERVERS=(
 echo "${BOLD}${FG_CYAN}Mode:${RESET} ${PING_COUNT} probes per host"
 echo "${BOLD}${FG_CYAN}Timeout:${RESET} ${PING_TIMEOUT}s per probe"
 echo "${BOLD}${FG_CYAN}Targets:${RESET} ${#DNS_SERVERS[@]} providers (primary + secondary)"
-echo; echo "${BOLD}${FG_BLUE}Testing DNS (Please wait)…${RESET}"; echo
+echo; echo "${BOLD}${FG_BLUE}Testing DNS (Please Wait)…${RESET}"; echo
 
 for entry in "${DNS_SERVERS[@]}"; do
   IFS=',' read -r provider ip1 ip2 <<<"$entry"
