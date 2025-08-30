@@ -79,6 +79,33 @@ function Ensure-Winfetch {
     Write-Host "$($BOLD)$($FG_RED)Could not make winfetch available. DNS test will continue without it.$($RESET)"
 }
 
+# --- Animated Progress Bar Function ---
+function Show-AnimatedBar {
+    param(
+        [string]$Label,
+        [int]$DurationSeconds = 5
+    )
+    # Suppress error if console window is too small during execution
+    $ErrorActionPreference = 'SilentlyContinue'
+    $width = [math]::Floor(($Host.UI.RawUI.WindowSize.Width - 28))
+    if ($width -lt 12) { $width = 12 }
+
+    $totalFrames = $DurationSeconds * 20 # 20 frames per second
+    for ($frame = 0; $frame -le $totalFrames; $frame++) {
+        $percent = $frame / $totalFrames
+        $filled = [math]::Round($width * $percent)
+        $empty = $width - $filled
+        
+        $filledBar = "█" * $filled
+        $emptyBar = " " * $empty
+
+        $progressText = "$($FG_GREEN)$($Label.PadRight(10))$($RESET) [$($FG_GREEN)$filledBar$($RESET)$emptyBar]"
+        Write-Host "`r$progressText" -NoNewline
+        Start-Sleep -Milliseconds 50
+    }
+    $ErrorActionPreference = 'Continue' # Restore error preference
+}
+
 
 # --- Function to Run Winfetch and DNS Benchmark ---
 function Start-Benchmark {
@@ -124,7 +151,13 @@ function Start-Benchmark {
         Write-Host "$($BOLD)$($FG_CYAN)$providerName$($RESET)"
 
         # Test Primary IP
-        $pingResult1 = Test-Connection -ComputerName $server.Primary -Count $pingCount -ErrorAction SilentlyContinue
+        $job1 = Start-Job -ScriptBlock { 
+            param($ip, $count)
+            Test-Connection -ComputerName $ip -Count $count -ErrorAction SilentlyContinue 
+        } -ArgumentList $server.Primary, $pingCount
+        Show-AnimatedBar -Label "Primary" -DurationSeconds $pingTimeoutSeconds
+        $pingResult1 = Receive-Job -Job $job1 -Wait -AutoRemoveJob
+        Write-Host "`r$(' ' * ($Host.UI.RawUI.WindowSize.Width -1))`r" -NoNewline
         if ($pingResult1) {
             $avgLatency1 = ($pingResult1 | Measure-Object -Property ResponseTime -Average).Average
             $loss1 = (1 - ($pingResult1.Count / $pingCount)) * 100
@@ -136,7 +169,13 @@ function Start-Benchmark {
         }
 
         # Test Secondary IP
-        $pingResult2 = Test-Connection -ComputerName $server.Secondary -Count $pingCount -ErrorAction SilentlyContinue
+        $job2 = Start-Job -ScriptBlock { 
+            param($ip, $count)
+            Test-Connection -ComputerName $ip -Count $count -ErrorAction SilentlyContinue 
+        } -ArgumentList $server.Secondary, $pingCount
+        Show-AnimatedBar -Label "Secondary" -DurationSeconds $pingTimeoutSeconds
+        $pingResult2 = Receive-Job -Job $job2 -Wait -AutoRemoveJob
+        Write-Host "`r$(' ' * ($Host.UI.RawUI.WindowSize.Width -1))`r" -NoNewline
         if ($pingResult2) {
             $avgLatency2 = ($pingResult2 | Measure-Object -Property ResponseTime -Average).Average
             $loss2 = (1 - ($pingResult2.Count / $pingCount)) * 100
