@@ -17,71 +17,21 @@ Pings resolvers’ primary and secondary IPv4s; extracts average RTT from Linux 
 Sorts and displays the Top 3 endpoints by the lowest average latency as large, centered banners for quick visual selection.
 
 🌍 Global Free DNS Providers
-Google Public DNS
+Legend:
 
-8.8.8.8, 8.8.4.4
+✅ reliability | 🔒 privacy | 🛡 security | 🎛 filtering | ⚡ speed
 
-✅ Very reliable, fast, no content filtering.
-
-⚠️ May log data for performance/security.
-
-Cloudflare DNS
-
-1.1.1.1, 1.0.0.1
-
-✅ Privacy focused (claims not to log IPs), fast worldwide.
-
-⚡ Family filters available: 1.1.1.2, 1.1.1.3.
-
-Quad9 DNS
-
-9.9.9.9, 149.112.112.112
-
-✅ Blocks malicious domains, good for security.
-
-📍 Operated as a non‑profit.
-
-OpenDNS (Cisco)
-
-208.67.222.222, 208.67.220.220
-
-✅ Custom filtering (phishing/adult), very stable.
-
-⚠️ Advanced filtering needs an account.
-
-AdGuard DNS
-
-94.140.14.14, 94.140.15.15
-
-✅ Blocks ads, trackers, adult content.
-
-CleanBrowsing DNS
-
-185.228.168.9, 185.228.169.9
-
-✅ Good for families/schools, multiple filtering modes.
-
-Verisign Public DNS
-
-64.6.64.6, 64.6.65.6
-
-✅ Reliable, stable, no redirection.
-
-Neustar UltraDNS Public
-
-Commonly offered with security/family-safe modes; check current public endpoints on provider docs.
-
-Yandex.DNS (Russia-based)
-
-77.88.8.8, 77.88.8.1
-
-✅ Offers “Safe” (malware/adult blocking) and “Family” (stricter) options; verify regional availability.
-
-Comodo Secure DNS
-
-8.26.56.26, 8.20.247.20
-
-✅ Focused on blocking malicious sites and security.
+Provider	Primary	Secondary	Strengths	Notes
+Cloudflare	1.1.1.1	1.0.0.1	🔒 privacy - ⚡ speed	Family filters: 1.1.1.2 (malware), 1.1.1.3 (malware+adult)
+Google Public DNS	8.8.8.8	8.8.4.4	✅ reliability - ⚡ speed	No content filtering; performance/security data may be logged
+Quad9	9.9.9.9	149.112.112.112	🛡 security (malware blocking) - ✅ reliable	Non‑profit operator
+OpenDNS (Cisco)	208.67.222.222	208.67.220.220	🎛 custom filtering - ✅ stable	Account required for advanced policies
+AdGuard DNS	94.140.14.14	94.140.15.15	🎛 ad/trackers/adult blocking - 🔒 privacy‑minded	Good default protection out of the box
+CleanBrowsing	185.228.168.9	185.228.169.9	🎛 family/school filters - 🛡 safe browsing	Multiple policy endpoints (Family/Adult/Security)
+Verisign Public DNS	64.6.64.6	64.6.65.6	✅ stable - 🚫 no redirection	Straightforward, dependable resolvers
+Neustar UltraDNS Public	—	—	🛡 security - 🎛 family‑safe modes	Check provider docs for current public IPs
+Yandex.DNS	77.88.8.8	77.88.8.1	🎛 Safe/Family profiles - 🛡 blocking	Region‑dependent performance/availability
+Comodo Secure DNS	8.26.56.26	8.20.247.20	🛡 malicious‑site blocking - ✅ reliable	Security‑centric policy set
 
 Notes:
 
