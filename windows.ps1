@@ -30,7 +30,6 @@ function Ensure-ScoopAndWinfetch {
         # Set execution policy to allow installation script to run
         try {
             Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-            # Download and run the Scoop installer using the recommended modern method
             Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
             Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
         }
@@ -165,3 +164,4 @@ foreach ($entry in $top3) {
 }
 Write-Host $sep
 Write-Host ""
+
