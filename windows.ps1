@@ -1,12 +1,11 @@
 # Windows DNS & System Info Script
 # Description: Checks for/installs Scoop -> Checks for/installs winfetch -> Runs DNS latency test.
 #
-# To Run from PowerShell:
-#   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-#   irm https://gist.githubusercontent.com/your-username/your-gist-id/raw/dns-benchmark.ps1 | iex
+# To Run from PowerShell (if execution policy is already set):
+#   irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex
 #
-# Or, to run with a single command without changing policy permanently:
-#   powershell -ExecutionPolicy Bypass -NoProfile -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://gist.githubusercontent.com/your-username/your-gist-id/raw/dns-benchmark.ps1'))"
+# To Run from Command Prompt or PowerShell with a single command (recommended):
+#   powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex"
 
 # --- Script Configuration ---
 $pingCount = 5
@@ -31,8 +30,8 @@ function Ensure-ScoopAndWinfetch {
         # Set execution policy to allow installation script to run
         try {
             Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-            # Download and run the Scoop installer
-            Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+            # Download and run the Scoop installer using the recommended modern method
+            irm get.scoop.sh | iex
             Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
         }
         catch {
