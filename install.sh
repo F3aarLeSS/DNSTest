@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RAW_URL="https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/NeoDNS_Top3.command"
+RAW_URL="https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/macOS_Linux.command"
+RAW_URL="https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/windows.ps1"
 
 # Check curl or wget
 if command -v curl >/dev/null 2>&1; then
