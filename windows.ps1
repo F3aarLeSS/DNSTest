@@ -32,6 +32,12 @@ function Ensure-ScoopAndWinfetch {
             Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
             Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
             Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
+
+            # Add Scoop's path to the current session's environment PATH
+            # This makes the 'scoop' command available immediately.
+            $scoopPath = "$($env:USERPROFILE)\scoop\shims"
+            $env:PATH = "$scoopPath;$($env:PATH)"
+            Write-Host "$($BOLD)$($FG_YELLOW)Updated session PATH to include Scoop.$($RESET)"
         }
         catch {
             Write-Host "$($BOLD)$($FG_RED)Failed to install Scoop. Please install it manually from https://scoop.sh$($RESET)"
