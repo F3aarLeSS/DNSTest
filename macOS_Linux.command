@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NeoDNS Top‑3: neofetch (auto‑install via Homebrew if needed), smooth bars, Top‑3 banners + summary table
+# macOS_Linux: neofetch (auto‑install via Homebrew if needed), smooth bars, Top‑3 banners + summary table
 set -euo pipefail
 
 export LC_ALL=${LC_ALL:-C.UTF-8}
