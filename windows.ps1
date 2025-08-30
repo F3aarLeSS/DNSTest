@@ -29,15 +29,16 @@ function Ensure-ScoopAndWinfetch {
         Write-Host "$($BOLD)$($FG_YELLOW)Scoop package manager not found. Attempting to install...$($RESET)"
         # Set execution policy to allow installation script to run
         try {
-            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
             Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
             Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
 
             # Add Scoop's path to the current session's environment PATH
-            # This makes the 'scoop' command available immediately.
             $scoopPath = "$($env:USERPROFILE)\scoop\shims"
             $env:PATH = "$scoopPath;$($env:PATH)"
-            Write-Host "$($BOLD)$($FG_YELLOW)Updated session PATH to include Scoop.$($RESET)"
+            
+            # Pause briefly to ensure file system changes are registered
+            Start-Sleep -Seconds 2
         }
         catch {
             Write-Host "$($BOLD)$($FG_RED)Failed to install Scoop. Please install it manually from https://scoop.sh$($RESET)"
@@ -51,7 +52,14 @@ function Ensure-ScoopAndWinfetch {
     if (-not (Get-Command winfetch -ErrorAction SilentlyContinue)) {
         Write-Host "$($BOLD)$($FG_YELLOW)winfetch not found. Installing via Scoop...$($RESET)"
         try {
-            scoop install winfetch
+            # Use the direct path to the scoop executable to avoid PATH issues in the same session.
+            $scoopExecutable = "$($env:USERPROFILE)\scoop\shims\scoop.cmd"
+            if (Test-Path $scoopExecutable) {
+                & $scoopExecutable install winfetch
+            } else {
+                # Fallback for unexpected scenarios
+                scoop install winfetch
+            }
         }
         catch {
             Write-Host "$($BOLD)$($FG_RED)Failed to install winfetch. Continuing without it.$($RESET)"
