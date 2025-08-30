@@ -78,8 +78,8 @@ parse_avg(){ local out="$1" line; line=$(echo "$out" | grep -E 'rtt min/avg/max|
 parse_loss(){ echo "$1" | grep -Eo '[0-9]+(\.[0-9]+)?% packet loss' | head -n1 | sed 's/% packet loss//'; }
 info_line(){ printf "${BOLD}%-14s${RESET} %s\n" "$1" "$2"; }
 
-PING_COUNT=4
-PING_TIMEOUT=2
+PING_COUNT=3
+PING_TIMEOUT=1
 BAR_DURATION_MS=$((PING_COUNT * 1000))
 
 DNS_SERVERS=(
