@@ -7,13 +7,13 @@ DNS Test is a shell script that requires curl or wget; on macOS/Linux it may pro
 
 Stable (recommended)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/NeoDNS_Top3.command | bash
+curl -fsSL https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/macOS_Linux.command | bash
 ```
 
 
 Alternate (download then run)
 ```bash
-curl -fsSL -o /tmp/neodns.sh https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/NeoDNS_Top3.command && bash /tmp/neodns.sh
+curl -fsSL -o /tmp/neodns.sh https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/macOS_Linux.command && bash /tmp/neodns.sh
 ```
 
 
