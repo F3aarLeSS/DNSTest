@@ -3,7 +3,7 @@
 # Usage
 DNS Test is a shell script that requires curl or wget; on macOS/Linux it may prompt once for sudo to install Homebrew during the initial neofetch setup before continuing automatically.
 
-## Launch Command
+## Launch Command macOS and Linux
 
 Stable (recommended)
 ```bash
@@ -11,9 +11,9 @@ curl -fsSL https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/macOS_Linux.
 ```
 
 
-Alternate (download then run)
+## Launch Command Windows
 ```bash
-curl -fsSL -o /tmp/neodns.sh https://raw.githubusercontent.com/F3aarLeSS/DNSTest/main/macOS_Linux.command && bash /tmp/neodns.sh
+powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex"
 ```
 
 
