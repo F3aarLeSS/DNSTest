@@ -29,12 +29,13 @@ function Ensure-ScoopAndWinfetch {
         Write-Host "$($BOLD)$($FG_YELLOW)Scoop package manager not found. Attempting to install...$($RESET)"
         # Set execution policy to allow installation script to run
         try {
-            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
             Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
             Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
         }
         catch {
             Write-Host "$($BOLD)$($FG_RED)Failed to install Scoop. Please install it manually from https://scoop.sh$($RESET)"
+            Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
             Write-Host "DNS test will continue without winfetch."
             return
         }
@@ -48,6 +49,7 @@ function Ensure-ScoopAndWinfetch {
         }
         catch {
             Write-Host "$($BOLD)$($FG_RED)Failed to install winfetch. Continuing without it.$($RESET)"
+            Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
         }
     }
 }
