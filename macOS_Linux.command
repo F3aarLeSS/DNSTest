@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# macOS_Linux: neofetch (auto‑install via Homebrew if needed), smooth bars, Top‑3 banners + summary table
+# Install Homebrew (if missing) → install neofetch → DNS latency test with summary table
 set -euo pipefail
 
 export LC_ALL=${LC_ALL:-C.UTF-8}
@@ -8,48 +8,52 @@ export LANG=${LANG:-C.UTF-8}
 esc=$'\033'
 RESET="${esc}[0m"; BOLD="${esc}[1m"; DIM="${esc}[2m"
 FG_RED="${esc}[31m"; FG_GREEN="${esc}[32m"; FG_YELLOW="${esc}[33m"
-FG_BLUE="${esc}[34m"; FG_MAGENTA="${esc}[35m"; FG_CYAN="${esc}[36m"; FG_WHITE="${esc}[37m"
+FG_BLUE="${esc}[34m"; FG_MAGENTA="${esc}[35m"; FG_CYAN="${esc}[36m"
 
 COLUMNS=${COLUMNS:-100}
-
 TMP_RESULTS="$(mktemp)"
 cleanup(){ printf "%s" "$RESET"; rm -f "$TMP_RESULTS" /tmp/ping.$$ 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 os_id="$(uname -s 2>/dev/null || echo unknown)"
 
-ensure_neofetch() {
-  command -v neofetch >/dev/null 2>&1 && return 0
+# Ensure Homebrew is installed (interactive if needed), then ensure neofetch
+ensure_brew_and_neofetch() {
   if ! command -v brew >/dev/null 2>&1; then
-    echo "${BOLD}${FG_YELLOW}Homebrew not found — launching interactive installer (sudo may prompt)…${RESET}"
-    if [[ "$os_id" == "Darwin" ]]; then
-      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || { echo "${FG_RED}Homebrew install failed; continuing without neofetch.${RESET}"; return 0; }
-      eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || true)"
-      eval "$(/usr/local/bin/brew shellenv 2>/dev/null || true)"
-    elif [[ "$os_id" == "Linux" ]]; then
-      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || { echo "${FG_RED}Homebrew install failed (Linux); continuing without neofetch.${RESET}"; return 0; }
-      test -d ~/.linuxbrew && eval "$(~/.linuxbrew/bin/brew shellenv)"
-      test -d /home/linuxbrew/.linuxbrew && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+    echo "${BOLD}${FG_YELLOW}Homebrew not found — starting official installer (sudo may prompt)…${RESET}"
+    # If stdin is not a TTY (e.g., curl | bash), open an interactive subshell so the installer can prompt.
+    if [[ ! -t 0 ]]; then
+      /bin/bash -lc '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
     else
-      echo "${FG_YELLOW}Unsupported OS for Homebrew auto-install (${os_id}); skipping neofetch install.${RESET}"
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+
+    # Set up brew shell environment for this session.
+    eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || true)"
+    eval "$(/usr/local/bin/brew shellenv 2>/dev/null || true)"
+    test -d ~/.linuxbrew && eval "$(~/.linuxbrew/bin/brew shellenv 2>/dev/null)"
+    test -d /home/linuxbrew/.linuxbrew && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv 2>/dev/null)"
+    if ! command -v brew >/dev/null 2>&1; then
+      echo "${FG_RED}Homebrew installation did not complete; DNS test will continue without neofetch.${RESET}"
       return 0
     fi
   else
     eval "$($(command -v brew) shellenv 2>/dev/null)" || true
   fi
-  command -v neofetch >/dev/null 2>&1 || { echo "${BOLD}${FG_YELLOW}Installing neofetch with Homebrew…${RESET}"; brew update >/dev/null 2>&1 || true; brew install neofetch >/dev/null 2>&1 || echo "${FG_RED}Failed to install neofetch; continuing without it.${RESET}"; }
+
+  if ! command -v neofetch >/dev/null 2>&1; then
+    echo "${BOLD}${FG_YELLOW}Installing neofetch via Homebrew…${RESET}"
+    brew update >/dev/null 2>&1 || true
+    brew install neofetch >/dev/null 2>&1 || echo "${FG_RED}Failed to install neofetch; continuing without it.${RESET}"
+  fi
 }
 
-ensure_neofetch
-if command -v neofetch >/dev/null 2>&1; then neofetch; else echo "${BOLD}${FG_GREEN}Neofetch not found; continuing with DNS tests…${RESET}"; fi
+ensure_brew_and_neofetch
+command -v neofetch >/dev/null 2>&1 && neofetch || echo "${BOLD}${FG_GREEN}Neofetch not found; continuing with DNS tests…${RESET}"
 
-echo
-echo "${BOLD}${FG_BLUE}DNS Section${RESET}"
-echo "-----------"
-echo
+echo; echo "${BOLD}${FG_BLUE}DNS Section${RESET}"; echo "-----------"; echo
 
 sleep_60fps(){ sleep 0.0167 2>/dev/null || sleep 0.02; }
-
 bar_green_60fps(){
   local label="$1" total=${2:-3} duration_ms=${3:-1000}
   local width=$(( (COLUMNS>80?80:COLUMNS) - 28 )); (( width<12 )) && width=12
@@ -70,10 +74,8 @@ ping_host(){
   local ip="$1" count="$2" timeout="$3"
   if ping -V >/dev/null 2>&1; then ping -c "$count" -W "$timeout" "$ip"; else ping -c "$count" -t $((timeout+2)) "$ip"; fi
 }
-
 parse_avg(){ local out="$1" line; line=$(echo "$out" | grep -E 'rtt min/avg/max|round-trip min/avg/max' | head -n1 || true); [[ -n "$line" ]] && echo "$line" | awk -F'=' '{print $2}' | awk -F'/' '{gsub(/ /,""); print $2}'; }
 parse_loss(){ echo "$1" | grep -Eo '[0-9]+(\.[0-9]+)?% packet loss' | head -n1 | sed 's/% packet loss//'; }
-
 info_line(){ printf "${BOLD}%-14s${RESET} %s\n" "$1" "$2"; }
 
 PING_COUNT=5
@@ -95,9 +97,7 @@ DNS_SERVERS=(
 echo "${BOLD}${FG_CYAN}Mode:${RESET} ${PING_COUNT} probes per host"
 echo "${BOLD}${FG_CYAN}Timeout:${RESET} ${PING_TIMEOUT}s per probe"
 echo "${BOLD}${FG_CYAN}Targets:${RESET} ${#DNS_SERVERS[@]} providers (primary + secondary)"
-echo
-echo "${BOLD}${FG_BLUE}Testing DNS (smooth ~60 fps bars)…${RESET}"
-echo
+echo; echo "${BOLD}${FG_BLUE}Testing DNS (Please wait)…${RESET}"; echo
 
 for entry in "${DNS_SERVERS[@]}"; do
   IFS=',' read -r provider ip1 ip2 <<<"$entry"
@@ -162,7 +162,6 @@ while IFS=',' read -r PNAME PIP PLOSS PLAT; do
   TAGS="$(provider_tags "$PNAME")"
   printf "| %-14s | %-16s | %7sms | %-41s |\n" "$PNAME" "$PIP" "$PLAT" "$TAGS"
 done < "$TOP3"
-echo "$sep"
-echo
+echo "$sep"; echo
 
 rm -f "$TOP3" "$CLEAN"
