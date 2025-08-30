@@ -1,6 +1,6 @@
 # Windows DNS & System Info Script
-# Description: Checks for dependencies. If missing, it installs them and relaunches in a new window.
-#              If dependencies exist, it runs winfetch and a DNS latency test.
+# Description: Checks for winfetch. If missing, it tries to install it using Winget or by direct download,
+#              then it runs the DNS latency test.
 #
 # To Run (from Command Prompt or PowerShell):
 #   powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex"
@@ -16,45 +16,52 @@ $FG_YELLOW = "$esc[33m"
 $FG_BLUE = "$esc[34m"
 $FG_CYAN = "$esc[36m"
 
-# --- Function to Install Scoop and Winfetch ---
-function Install-Dependencies {
-    # Check if Scoop is installed
-    if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
-        Write-Host "$($BOLD)$($FG_YELLOW)Scoop package manager not found. Attempting to install...$($RESET)"
-        try {
-            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-            Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-            Write-Host "$($BOLD)$($FG_GREEN)Scoop installed successfully.$($RESET)"
-            # Pause briefly to ensure file system changes are registered
-            Start-Sleep -Seconds 2
-        }
-        catch {
-            Write-Host "$($BOLD)$($FG_RED)Failed to install Scoop. Please install it manually from https://scoop.sh$($RESET)"
-            Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
-            return $false
-        }
+# --- Function to ensure Winfetch is available ---
+function Ensure-Winfetch {
+    # 1. Check if winfetch command already exists
+    if (Get-Command winfetch -ErrorAction SilentlyContinue) {
+        Write-Host "$($BOLD)$($FG_GREEN)winfetch is already available.$($RESET)"
+        return
     }
 
-    # Check if winfetch is installed
-    if (-not (Get-Command winfetch -ErrorAction SilentlyContinue)) {
-        Write-Host "$($BOLD)$($FG_YELLOW)winfetch not found. Installing via Scoop...$($RESET)"
+    # 2. Attempt to install via Winget (preferred method)
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "$($BOLD)$($FG_YELLOW)Winfetch not found. Attempting to install using Winget...$($RESET)"
         try {
-            # Use the direct path to the scoop executable to avoid PATH issues in the same session.
-            $scoopExecutable = "$($env:USERPROFILE)\scoop\shims\scoop.cmd"
-            if (Test-Path $scoopExecutable) {
-                & $scoopExecutable install winfetch
-            } else { # Fallback
-                scoop install winfetch
+            winget install --id Kde.Winfetch -e --accept-package-agreements --accept-source-agreements | Out-Null
+            # Refresh environment variables to find the new command
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            if (Get-Command winfetch -ErrorAction SilentlyContinue) {
+                Write-Host "$($BOLD)$($FG_GREEN)winfetch installed successfully via Winget.$($RESET)"
+                return
             }
         }
         catch {
-            Write-Host "$($BOLD)$($FG_RED)Failed to install winfetch. Continuing without it.$($RESET)"
-            Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
-            return $false
+             Write-Host "$($BOLD)$($FG_YELLOW)Winget installation failed. $($_.Exception.Message)$($RESET)"
         }
     }
-    return $true
+
+    # 3. Fallback: Direct download from GitHub
+    Write-Host "$($BOLD)$($FG_YELLOW)Winget failed or not found. Attempting direct download of winfetch script...$($RESET)"
+    $winfetchUrl = "https://github.com/kiedtl/winfetch/releases/latest/download/winfetch.ps1"
+    $localPath = Join-Path $env:TEMP "winfetch.ps1"
+    try {
+        Invoke-RestMethod -Uri $winfetchUrl -OutFile $localPath
+        # Make the downloaded script available as the 'winfetch' command for this session
+        Set-Alias -Name winfetch -Value $localPath -Scope Global -Force
+        if (Get-Command winfetch -ErrorAction SilentlyContinue) {
+             Write-Host "$($BOLD)$($FG_GREEN)winfetch downloaded successfully.$($RESET)"
+             return
+        }
+    }
+    catch {
+        Write-Host "$($BOLD)$($FG_RED)Failed to download winfetch directly.$($RESET)"
+        Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
+    }
+    
+    Write-Host "$($BOLD)$($FG_RED)Could not make winfetch available. DNS test will continue without it.$($RESET)"
 }
+
 
 # --- Function to Run Winfetch and DNS Benchmark ---
 function Start-Benchmark {
@@ -63,7 +70,7 @@ function Start-Benchmark {
         winfetch
     }
     else {
-        Write-Host "$($BOLD)$($FG_GREEN)winfetch not found; continuing with DNS tests...$($RESET)"
+        Write-Host "$($BOLD)$($FG_GREEN)winfetch could not be installed; continuing with DNS tests...$($RESET)"
     }
 
     Write-Host ""
@@ -158,36 +165,6 @@ function Start-Benchmark {
 }
 
 # --- Main Script Execution ---
-
-$scoopExists = Get-Command scoop -ErrorAction SilentlyContinue
-$winfetchExists = Get-Command winfetch -ErrorAction SilentlyContinue
-
-if ($scoopExists -and $winfetchExists) {
-    # If everything is installed, just run the benchmark.
-    Start-Benchmark
-}
-else {
-    # If dependencies are missing, run the installer.
-    $installSuccess = Install-Dependencies
-    if ($installSuccess) {
-        Write-Host "$($BOLD)$($FG_GREEN)Installation complete! Re-running the script in a new window...$($RESET)"
-        Start-Sleep -Seconds 3
-
-        # Define the command to re-run this script from the web
-        $scriptUrl = "https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1"
-        $commandToRun = "irm $scriptUrl | iex"
-        
-        # Prepare arguments to launch a new PowerShell window that runs the command
-        $arguments = "-ExecutionPolicy Bypass -NoProfile -NoExit -Command `"$commandToRun`""
-        
-        # Launch the new process
-        Start-Process powershell -ArgumentList $arguments
-
-        # Close the current (installer) window
-        exit
-    }
-    else {
-        Write-Host "$($BOLD)$($FG_RED)Setup did not complete. Please resolve the errors above and try again.$($RESET)"
-    }
-}
+Ensure-Winfetch
+Start-Benchmark
 
