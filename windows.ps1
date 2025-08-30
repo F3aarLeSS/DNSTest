@@ -123,8 +123,8 @@ function Start-Benchmark {
     Write-Host ""
 
     # 2. DNS Benchmark Section
-    $pingCount = 5
-    $pingTimeoutSeconds = 5
+    $pingCount = 4
+    $pingTimeoutSeconds = 2
 
     $dnsServers = @(
         [pscustomobject]@{ Provider = "Cloudflare"; Primary = "1.1.1.1"; Secondary = "1.0.0.1" }
