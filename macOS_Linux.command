@@ -80,7 +80,7 @@ info_line(){ printf "${BOLD}%-14s${RESET} %s\n" "$1" "$2"; }
 
 PING_COUNT=4
 PING_TIMEOUT=2
-BAR_DURATION_MS=1000
+BAR_DURATION_MS=$((PING_COUNT * 1000))
 
 DNS_SERVERS=(
   "Cloudflare,1.1.1.1,1.0.0.1"
