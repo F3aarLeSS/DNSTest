@@ -1,5 +1,5 @@
 # Windows DNS & System Info Script
-# Description: Checks for winfetch. If missing, it tries to install it using Winget or by direct download,
+# Description: Checks for winfetch. If missing, it tries to install it using Chocolatey or by direct download,
 #              then it runs the DNS latency test.
 #
 # To Run (from Command Prompt or PowerShell):
@@ -24,25 +24,42 @@ function Ensure-Winfetch {
         return
     }
 
-    # 2. Attempt to install via Winget (preferred method)
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "$($BOLD)$($FG_YELLOW)Winfetch not found. Attempting to install using Winget...$($RESET)"
+    # 2. Attempt to install via Chocolatey (preferred method)
+    Write-Host "$($BOLD)$($FG_YELLOW)Winfetch not found. Attempting to install using Chocolatey...$($RESET)"
+    
+    # Check for Chocolatey and install if missing
+    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey not found. Attempting to install Chocolatey first...$($RESET)"
         try {
-            Invoke-WebRequest -Uri https://aka.ms/getwinget -OutFile winget.msixbundle
+            Set-ExecutionPolicy Bypass -Scope Process -Force;
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;
+            Invoke-RestMethod -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing | Invoke-Expression
             # Refresh environment variables to find the new command
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        }
+        catch {
+            Write-Host "$($BOLD)$($FG_RED)Failed to install Chocolatey. $($_.Exception.Message)$($RESET)"
+            # Fallback will be attempted next
+        }
+    }
+
+    # Install Winfetch with Chocolatey if available
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+         try {
+            choco install winfetch -y --force
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
             if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-                Write-Host "$($BOLD)$($FG_GREEN)winfetch installed successfully via Winget.$($RESET)"
+                Write-Host "$($BOLD)$($FG_GREEN)winfetch installed successfully via Chocolatey.$($RESET)"
                 return
             }
         }
         catch {
-             Write-Host "$($BOLD)$($FG_YELLOW)Winget installation failed. $($_.Exception.Message)$($RESET)"
+             Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey installation of winfetch failed. $($_.Exception.Message)$($RESET)"
         }
     }
 
     # 3. Fallback: Direct download from GitHub
-    Write-Host "$($BOLD)$($FG_YELLOW)Winget failed or not found. Attempting direct download of winfetch script...$($RESET)"
+    Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey failed or not found. Attempting direct download of winfetch script...$($RESET)"
     $winfetchUrl = "https://github.com/kiedtl/winfetch/releases/latest/download/winfetch.ps1"
     $localPath = Join-Path $env:TEMP "winfetch.ps1"
     try {
