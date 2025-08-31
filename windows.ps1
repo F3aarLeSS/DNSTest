@@ -1,502 +1,303 @@
-#Requires -Version 7.0
+# Enhanced DNS Testing Script with Winfetch Integration and Visual Appeal
+# Execute this script in PowerShell
 
-<#
-.SYNOPSIS
-    DNS Benchmark Tool - PowerShell 7+ Native Implementation
-    
-.DESCRIPTION
-    A comprehensive DNS latency benchmark tool that tests common DNS providers,
-    ranks them by performance, and displays results with animated progress and
-    styled console output. Native Windows implementation without WSL dependencies.
-
-.PARAMETER Count
-    Number of ping tests per DNS server (default: 5)
-    
-.PARAMETER TimeoutMs
-    Timeout in milliseconds per ping test (default: 500)
-    
-.PARAMETER BoxWidth
-    Width of the display box (default: 96)
-    
-.PARAMETER NoColor
-    Disable ANSI color output for compatibility
-    
-.EXAMPLE
-    .\DNS-Benchmark.ps1
-    
-.EXAMPLE
-    .\DNS-Benchmark.ps1 -Count 10 -TimeoutMs 1000 -NoColor
-#>
-
-[CmdletBinding()]
-param(
-    [int]$Count = 5,
-    [int]$TimeoutMs = 500,
-    [int]$BoxWidth = 96,
-    [switch]$NoColor
-)
-
-# =============================================================================
-# GLOBAL VARIABLES AND CONFIGURATION
-# =============================================================================
-
-$Global:BOX_WIDTH = $BoxWidth
-$Global:PING_COUNT = $Count
-$Global:PING_TIMEOUT_MS = $TimeoutMs
-$Global:USE_ANSI = -not $NoColor -and $PSVersionTable.PSVersion.Major -ge 7
-
-# ANSI Escape sequences for PowerShell 7+
-if ($Global:USE_ANSI) {
-    $esc = "`e"
-} else {
-    $esc = [char]0x1b
+function Show-AnimatedBanner {
+    $banner = @"
+`e[35m
+╔══════════════════════════════════════════════════════════════════════╗
+║  ██████╗ ███╗   ██╗███████╗    ████████╗███████╗███████╗████████╗    ║
+║  ██╔══██╗████╗  ██║██╔════╝    ╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝    ║
+║  ██║  ██║██╔██╗ ██║███████╗       ██║   █████╗  ███████╗   ██║       ║
+║  ██║  ██║██║╚██╗██║╚════██║       ██║   ██╔══╝  ╚════██║   ██║       ║
+║  ██████╔╝██║ ╚████║███████║       ██║   ███████╗███████║   ██║       ║
+║  ╚═════╝ ╚═╝  ╚═══╝╚══════╝       ╚═╝   ╚══════╝╚══════╝   ╚═╝       ║
+║                                                                      ║
+║              🌐 DNS Benchmark Tool with System Info 🌐              ║
+╚══════════════════════════════════════════════════════════════════════╝
+`e[0m
+"@
+    Write-Host $banner
 }
 
-# ANSI Color codes
-$Global:Colors = @{
-    Reset     = if ($Global:USE_ANSI) { "$esc[0m" } else { "" }
-    Bold      = if ($Global:USE_ANSI) { "$esc[1m" } else { "" }
-    Red       = if ($Global:USE_ANSI) { "$esc[31m" } else { "" }
-    Green     = if ($Global:USE_ANSI) { "$esc[32m" } else { "" }
-    Yellow    = if ($Global:USE_ANSI) { "$esc[33m" } else { "" }
-    Blue      = if ($Global:USE_ANSI) { "$esc[34m" } else { "" }
-    Magenta   = if ($Global:USE_ANSI) { "$esc[35m" } else { "" }
-    Cyan      = if ($Global:USE_ANSI) { "$esc[36m" } else { "" }
-    White     = if ($Global:USE_ANSI) { "$esc[37m" } else { "" }
-    BgBlue    = if ($Global:USE_ANSI) { "$esc[44m" } else { "" }
-    BgGreen   = if ($Global:USE_ANSI) { "$esc[42m" } else { "" }
-}
-
-# DNS Provider Configuration
-$Global:DNSProviders = @(
-    @{ Name = "Cloudflare"; Primary = "1.1.1.1"; Secondary = "1.0.0.1"; Tag = "Speed, Privacy, Modern" },
-    @{ Name = "Google"; Primary = "8.8.8.8"; Secondary = "8.8.4.4"; Tag = "Reliable, Fast, Global" },
-    @{ Name = "Quad9"; Primary = "9.9.9.9"; Secondary = "149.112.112.112"; Tag = "Security, Threat Blocking" },
-    @{ Name = "OpenDNS"; Primary = "208.67.222.222"; Secondary = "208.67.220.220"; Tag = "Family Safe, Filtering" },
-    @{ Name = "AdGuard"; Primary = "94.140.14.14"; Secondary = "94.140.15.15"; Tag = "Ad Blocking, Privacy" },
-    @{ Name = "CleanBrowsing"; Primary = "185.228.168.9"; Secondary = "185.228.169.9"; Tag = "Family Filter, Safe" },
-    @{ Name = "Comodo"; Primary = "8.26.56.26"; Secondary = "8.20.247.20"; Tag = "Secure, Malware Protection" },
-    @{ Name = "Verisign"; Primary = "64.6.64.6"; Secondary = "64.6.65.6"; Tag = "Stable, Public DNS" }
-)
-
-# Results storage
-$Global:TestResults = @()
-
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
-
-function Strip-AnsiCodes {
-    param([string]$Text)
-    return $Text -replace '\x1b\[[0-9;]*m', ''
-}
-
-function Get-ConsoleWidth {
-    try {
-        $width = $Host.UI.RawUI.WindowSize.Width
-        if ($width -lt 80) { return 80 }
-        return $width
-    }
-    catch {
-        return 120
-    }
-}
-
-function Center-Print {
-    param(
-        [string]$Text,
-        [string]$Color = "White"
-    )
+function Show-LoadingAnimation {
+    param([string]$Message, [int]$Duration = 2)
     
-    $consoleWidth = Get-ConsoleWidth
-    $cleanText = Strip-AnsiCodes -Text $Text
-    $textLength = $cleanText.Length
-    $leftPadding = [Math]::Max(0, [Math]::Floor(($consoleWidth - $textLength) / 2))
+    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $counter = 0
+    $endTime = (Get-Date).AddSeconds($Duration)
     
-    $colorCode = $Global:Colors[$Color]
-    $resetCode = $Global:Colors.Reset
-    
-    Write-Host (" " * $leftPadding) -NoNewline
-    Write-Host "$colorCode$Text$resetCode"
-}
-
-function Center-Format {
-    param(
-        [string]$Text,
-        [int]$Width = $Global:BOX_WIDTH
-    )
-    
-    $cleanText = Strip-AnsiCodes -Text $Text
-    $textLength = $cleanText.Length
-    $consoleWidth = Get-ConsoleWidth
-    $leftOffset = [Math]::Max(0, [Math]::Floor(($consoleWidth - $Width) / 2))
-    $leftPadding = [Math]::Max(0, [Math]::Floor(($Width - $textLength) / 2))
-    
-    return (" " * $leftOffset) + (" " * $leftPadding) + $Text
-}
-
-function Print-BoxTop {
-    $line = "╭" + ("─" * ($Global:BOX_WIDTH - 2)) + "╮"
-    Center-Print -Text $line -Color "Cyan"
-}
-
-function Print-BoxBottom {
-    $line = "╰" + ("─" * ($Global:BOX_WIDTH - 2)) + "╯"
-    Center-Print -Text $line -Color "Cyan"
-}
-
-function Print-BoxSeparator {
-    $line = "├" + ("─" * ($Global:BOX_WIDTH - 2)) + "┤"
-    Center-Print -Text $line -Color "Cyan"
-}
-
-function Print-BoxBlank {
-    $line = "│" + (" " * ($Global:BOX_WIDTH - 2)) + "│"
-    Center-Print -Text $line -Color "Cyan"
-}
-
-function Print-BoxLine {
-    param([string]$Content)
-    
-    $cleanContent = Strip-AnsiCodes -Text $Content
-    $contentLength = $cleanContent.Length
-    $maxContentWidth = $Global:BOX_WIDTH - 4
-    
-    if ($contentLength -gt $maxContentWidth) {
-        $Content = $Content.Substring(0, $maxContentWidth - 3) + "..."
-        $contentLength = $maxContentWidth
-    }
-    
-    $padding = $maxContentWidth - $contentLength
-    $line = "│ $Content" + (" " * $padding) + " │"
-    Center-Print -Text $line -Color "Cyan"
-}
-
-# =============================================================================
-# ANIMATION AND PROGRESS FUNCTIONS
-# =============================================================================
-
-function Show-Spinner {
-    param(
-        [string]$Message,
-        [scriptblock]$ScriptBlock
-    )
-    
-    $spinnerChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $spinnerIndex = 0
-    
-    # Start the background job
-    $job = Start-Job -ScriptBlock $ScriptBlock
-    
-    # Show spinner while job is running
-    while ($job.State -eq 'Running') {
-        $spinnerChar = $spinnerChars[$spinnerIndex % $spinnerChars.Length]
-        $displayMessage = " $spinnerChar $Message"
-        Print-BoxLine -Content "$($Global:Colors.Yellow)$displayMessage$($Global:Colors.Reset)"
-        
+    while ((Get-Date) -lt $endTime) {
+        $frame = $spinner[$counter % $spinner.Length]
+        Write-Host "`r`e[36m$frame $Message`e[0m" -NoNewline
         Start-Sleep -Milliseconds 100
-        $spinnerIndex++
-        
-        # Move cursor up to overwrite the spinner line
-        if ($Global:USE_ANSI) {
-            Write-Host "$esc[1A$esc[2K" -NoNewline
-        }
+        $counter++
     }
-    
-    # Get the job result and clean up
-    $result = Receive-Job -Job $job
-    Remove-Job -Job $job
-    
-    return $result
+    Write-Host "`r`e[32m✅ $Message - Complete!`e[0m"
 }
 
-function Generate-LatencyBar {
-    param(
-        [double]$Latency,
-        [double]$MaxLatency,
-        [int]$MaxBarLength = 40
-    )
+function Invoke-WinfetchStart {
+    Write-Host "`n`e[33m╔═══════════════════════════════════════════════════════════════╗`e[0m"
+    Write-Host "`e[33m║                    SYSTEM INFORMATION                        ║`e[0m"
+    Write-Host "`e[33m╚═══════════════════════════════════════════════════════════════╝`e[0m"
     
-    if ($Latency -le 0 -or $MaxLatency -le 0) {
-        return ""
-    }
-    
-    # Inverse relationship: lower latency = longer bar
-    $barLength = [Math]::Max(1, [Math]::Round($MaxBarLength * (1 - ($Latency / ($MaxLatency * 1.2)))))
-    
-    # Color coding based on latency
-    $color = if ($Latency -lt 30) { "Green" }
-             elseif ($Latency -lt 80) { "Yellow" }
-             else { "Red" }
-    
-    $bar = "█" * $barLength
-    $colorCode = $Global:Colors[$color]
-    $resetCode = $Global:Colors.Reset
-    
-    return "$colorCode$bar$resetCode"
-}
-
-# =============================================================================
-# HEADER AND BANNER FUNCTIONS
-# =============================================================================
-
-function Print-Header {
-    Clear-Host
-    Print-BoxTop
-    Print-BoxBlank
-    
-    # DNS BENCHMARK title
-    $title = "$($Global:Colors.Bold)$($Global:Colors.Blue)DNS BENCHMARK$($Global:Colors.Reset)"
-    Print-BoxLine -Content (Center-Format -Text $title -Width ($Global:BOX_WIDTH - 4))
-    Print-BoxBlank
-    
-    # System information
-    try {
-        $computerInfo = Get-ComputerInfo -Property WindowsProductName, TotalPhysicalMemory -ErrorAction SilentlyContinue
-        if ($computerInfo) {
-            $os = $computerInfo.WindowsProductName
-            $ram = [Math]::Round($computerInfo.TotalPhysicalMemory / 1GB, 1)
-            $sysInfo = "System: $os | RAM: ${ram}GB | PS: $($PSVersionTable.PSVersion)"
-            Print-BoxLine -Content (Center-Format -Text $sysInfo -Width ($Global:BOX_WIDTH - 4))
-            Print-BoxBlank
-        }
-    }
-    catch {
-        # Skip system info if unavailable
-    }
-    
-    Print-BoxSeparator
-}
-
-function Print-ProviderHeader {
-    param([string]$ProviderName)
-    
-    $header = "$($Global:Colors.Bold)$($Global:Colors.Magenta)Testing $ProviderName DNS Servers$($Global:Colors.Reset)"
-    Print-BoxLine -Content (Center-Format -Text $header -Width ($Global:BOX_WIDTH - 4))
-    Print-BoxBlank
-}
-
-function Print-TopResultsHeader {
-    Print-BoxSeparator
-    Print-BoxBlank
-    
-    $title = "$($Global:Colors.Bold)$($Global:Colors.Green)🏆 TOP 3 DNS SERVERS 🏆$($Global:Colors.Reset)"
-    Print-BoxLine -Content (Center-Format -Text $title -Width ($Global:BOX_WIDTH - 4))
-    Print-BoxBlank
-    Print-BoxSeparator
-}
-
-# =============================================================================
-# DNS TESTING FUNCTIONS
-# =============================================================================
-
-function Test-DNSLatency {
-    param(
-        [string]$IPAddress,
-        [int]$Count = $Global:PING_COUNT,
-        [int]$TimeoutMs = $Global:PING_TIMEOUT_MS
-    )
+    Show-LoadingAnimation "Loading System Information"
     
     try {
-        $results = Test-Connection -ComputerName $IPAddress -Count $Count -TimeoutSeconds ($TimeoutMs / 1000) -ErrorAction Stop
+        # Execute winfetch directly without saving to disk
+        (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content.Remove(0,1) | Invoke-Expression
+        Write-Host "`e[32m[SUCCESS] System information loaded successfully!`e[0m"
+    } catch {
+        Write-Host "`e[31m[ERROR] Failed to load Winfetch. Showing basic system info...`e[0m"
+        # Fallback system info
+        Write-Host "`e[36mComputer: $env:COMPUTERNAME`e[0m"
+        Write-Host "`e[36mUser: $env:USERNAME`e[0m"
+        Write-Host "`e[36mOS: $(Get-WmiObject Win32_OperatingSystem | Select-Object -ExpandProperty Caption)`e[0m"
+    }
+}
+
+function Show-ColoredProgress {
+    param(
+        [string]$Activity,
+        [string]$Status,
+        [int]$PercentComplete,
+        [string]$Color = "Green"
+    )
+    
+    Write-Progress -Activity $Activity -Status $Status -PercentComplete $PercentComplete
+    
+    $colorCode = switch ($Color) {
+        "Green" { "`e[32m" }
+        "Yellow" { "`e[33m" }
+        "Red" { "`e[31m" }
+        "Blue" { "`e[34m" }
+        "Cyan" { "`e[36m" }
+        "Magenta" { "`e[35m" }
+        default { "`e[37m" }
+    }
+    
+    $progressBar = ""
+    $completed = [math]::Floor($PercentComplete / 5)
+    $remaining = 20 - $completed
+    
+    for ($i = 0; $i -lt $completed; $i++) { $progressBar += "█" }
+    for ($i = 0; $i -lt $remaining; $i++) { $progressBar += "░" }
+    
+    Write-Host "`r${colorCode}[$progressBar] $PercentComplete% - $Status`e[0m" -NoNewline
+}
+
+function Test-DNSWithBenchmark {
+    param([array]$DNSServers)
+    
+    Write-Host "`n`n`e[33m╔═══════════════════════════════════════════════════════════════╗`e[0m"
+    Write-Host "`e[33m║                    DNS BENCHMARK STARTED                     ║`e[0m"
+    Write-Host "`e[33m╚═══════════════════════════════════════════════════════════════╝`e[0m"
+    
+    $totalServers = $DNSServers.Count
+    $results = @()
+    $testDomains = @("google.com", "youtube.com", "github.com", "microsoft.com")
+    
+    for ($i = 0; $i -lt $totalServers; $i++) {
+        $server = $DNSServers[$i]
+        $serverName = $server.Name
+        $serverIP = $server.IP
+        $percentComplete = [math]::Round(($i / $totalServers) * 100)
         
-        $successfulPings = $results | Where-Object { $_.Status -eq 'Success' }
-        $totalPings = $results.Count
-        $successfulCount = $successfulPings.Count
+        Write-Host "`n`e[36m🔍 Testing: $serverName ($serverIP)`e[0m"
+        Show-ColoredProgress -Activity "DNS Benchmark Progress" -Status "Testing $serverName" -PercentComplete $percentComplete -Color "Cyan"
         
-        if ($successfulCount -gt 0) {
-            $avgLatency = ($successfulPings | Measure-Object -Property Latency -Average).Average
-            $packetLoss = (($totalPings - $successfulCount) / $totalPings) * 100
+        $totalResponseTime = 0
+        $successfulTests = 0
+        $testResults = @()
+        
+        foreach ($domain in $testDomains) {
+            try {
+                $responseTime = (Measure-Command { 
+                    Resolve-DnsName -Name $domain -Server $serverIP -ErrorAction Stop 
+                }).TotalMilliseconds
+                
+                $totalResponseTime += $responseTime
+                $successfulTests++
+                $testResults += "✅ $domain ($([math]::Round($responseTime, 1))ms)"
+                
+            } catch {
+                $testResults += "❌ $domain (Failed)"
+            }
+            
+            # Mini progress for each domain test
+            $domainProgress = ($testDomains.IndexOf($domain) + 1) / $testDomains.Count * 20
+            $currentPercent = $percentComplete + $domainProgress
+            Show-ColoredProgress -Activity "Testing domains" -Status "$domain on $serverName" -PercentComplete $currentPercent -Color "Yellow"
+            Start-Sleep -Milliseconds 200
+        }
+        
+        if ($successfulTests -gt 0) {
+            $avgResponseTime = $totalResponseTime / $successfulTests
+            $results += [PSCustomObject]@{
+                Name = $serverName
+                IP = $serverIP
+                AverageResponseTime = $avgResponseTime
+                SuccessfulTests = $successfulTests
+                TotalTests = $testDomains.Count
+                SuccessRate = [math]::Round(($successfulTests / $testDomains.Count) * 100, 1)
+                Status = if ($successfulTests -eq $testDomains.Count) { "Excellent" } 
+                        elseif ($successfulTests -ge 2) { "Good" } 
+                        else { "Poor" }
+                Color = if ($successfulTests -eq $testDomains.Count) { "Green" } 
+                       elseif ($successfulTests -ge 2) { "Yellow" } 
+                       else { "Red" }
+                TestDetails = $testResults
+            }
+            
+            Write-Host "`n`e[32m   ✅ Average Response: $([math]::Round($avgResponseTime, 2))ms | Success Rate: $([math]::Round(($successfulTests / $testDomains.Count) * 100, 1))%`e[0m"
         } else {
-            $avgLatency = $null
-            $packetLoss = 100
+            $results += [PSCustomObject]@{
+                Name = $serverName
+                IP = $serverIP
+                AverageResponseTime = 9999
+                SuccessfulTests = 0
+                TotalTests = $testDomains.Count
+                SuccessRate = 0
+                Status = "Failed"
+                Color = "Red"
+                TestDetails = $testResults
+            }
+            Write-Host "`n`e[31m   ❌ All tests failed for $serverName`e[0m"
+        }
+    }
+    
+    Write-Progress -Activity "DNS Benchmark Complete" -Status "All tests finished" -PercentComplete 100 -Completed
+    Write-Host "`n"
+    
+    return $results | Sort-Object AverageResponseTime
+}
+
+function Show-DetailedResults {
+    param([array]$Results)
+    
+    Write-Host "`e[35m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
+    Write-Host "`e[35m║                         DETAILED DNS RESULTS                        ║`e[0m"
+    Write-Host "`e[35m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
+    
+    $rank = 1
+    foreach ($result in $Results) {
+        $colorCode = switch ($result.Color) {
+            "Green" { "`e[32m" }
+            "Yellow" { "`e[33m" }
+            "Red" { "`e[31m" }
         }
         
-        return @{
-            AvgLatency = $avgLatency
-            PacketLoss = $packetLoss
-            SuccessfulPings = $successfulCount
-            TotalPings = $totalPings
+        $medal = switch ($rank) {
+            1 { "🥇" }
+            2 { "🥈" }
+            3 { "🥉" }
+            default { "  " }
         }
-    }
-    catch {
-        return @{
-            AvgLatency = $null
-            PacketLoss = 100
-            SuccessfulPings = 0
-            TotalPings = $Count
+        
+        Write-Host "`n${colorCode}$medal #$rank - $($result.Name) ($($result.IP))`e[0m"
+        Write-Host "${colorCode}   ⚡ Avg Response: $([math]::Round($result.AverageResponseTime, 2))ms`e[0m"
+        Write-Host "${colorCode}   📊 Success Rate: $($result.SuccessRate)% ($($result.SuccessfulTests)/$($result.TotalTests))`e[0m"
+        Write-Host "${colorCode}   📈 Status: $($result.Status)`e[0m"
+        
+        Write-Host "`e[37m   📋 Test Details:`e[0m"
+        foreach ($detail in $result.TestDetails) {
+            Write-Host "      $detail"
         }
+        
+        $rank++
     }
 }
 
-function Test-DNSProvider {
-    param($Provider)
+function Show-Top3DNSServers {
+    param([array]$Results)
     
-    Print-ProviderHeader -ProviderName $Provider.Name
+    $top3 = $Results | Where-Object { $_.SuccessfulTests -gt 0 } | Select-Object -First 3
     
-    # Test Primary DNS
-    $primaryResult = Show-Spinner -Message "Testing Primary DNS ($($Provider.Primary))..." -ScriptBlock {
-        Test-DNSLatency -IPAddress $using:Provider.Primary
-    }
+    Write-Host "`n`e[33m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
+    Write-Host "`e[33m║                         🏆 TOP 3 DNS SERVERS 🏆                     ║`e[0m"
+    Write-Host "`e[33m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
     
-    # Display primary result
-    if ($primaryResult.PacketLoss -lt 100) {
-        $latencyText = "{0:F1}ms" -f $primaryResult.AvgLatency
-        $lossText = "{0:F1}%" -f $primaryResult.PacketLoss
-        $status = "$($Global:Colors.Green)✓ PRIMARY$($Global:Colors.Reset) $($Provider.Primary) - ${latencyText} (${lossText} loss)"
-    } else {
-        $status = "$($Global:Colors.Red)✗ PRIMARY$($Global:Colors.Reset) $($Provider.Primary) - Unreachable"
-    }
-    Print-BoxLine -Content " $status"
-    
-    # Test Secondary DNS
-    $secondaryResult = Show-Spinner -Message "Testing Secondary DNS ($($Provider.Secondary))..." -ScriptBlock {
-        Test-DNSLatency -IPAddress $using:Provider.Secondary
-    }
-    
-    # Display secondary result
-    if ($secondaryResult.PacketLoss -lt 100) {
-        $latencyText = "{0:F1}ms" -f $secondaryResult.AvgLatency
-        $lossText = "{0:F1}%" -f $secondaryResult.PacketLoss
-        $status = "$($Global:Colors.Green)✓ SECONDARY$($Global:Colors.Reset) $($Provider.Secondary) - ${latencyText} (${lossText} loss)"
-    } else {
-        $status = "$($Global:Colors.Red)✗ SECONDARY$($Global:Colors.Reset) $($Provider.Secondary) - Unreachable"
-    }
-    Print-BoxLine -Content " $status"
-    
-    # Provider tag
-    $tagText = "$($Global:Colors.Blue)📋 $($Provider.Tag)$($Global:Colors.Reset)"
-    Print-BoxLine -Content " $tagText"
-    Print-BoxBlank
-    
-    # Store results
-    if ($primaryResult.PacketLoss -lt 100) {
-        $Global:TestResults += [PSCustomObject]@{
-            Provider = $Provider.Name
-            IP = $Provider.Primary
-            Type = "Primary"
-            AvgLatency = $primaryResult.AvgLatency
-            PacketLoss = $primaryResult.PacketLoss
-        }
-    }
-    
-    if ($secondaryResult.PacketLoss -lt 100) {
-        $Global:TestResults += [PSCustomObject]@{
-            Provider = $Provider.Name
-            IP = $Provider.Secondary
-            Type = "Secondary"
-            AvgLatency = $secondaryResult.AvgLatency
-            PacketLoss = $secondaryResult.PacketLoss
-        }
-    }
-}
-
-# =============================================================================
-# RESULTS PROCESSING AND DISPLAY
-# =============================================================================
-
-function Show-TopResults {
-    # Filter and sort results
-    $validResults = $Global:TestResults | Where-Object { 
-        $_.AvgLatency -ne $null -and $_.PacketLoss -lt 100 
-    } | Sort-Object AvgLatency | Select-Object -First 3
-    
-    if ($validResults.Count -eq 0) {
-        Print-BoxLine -Content " $($Global:Colors.Red)No DNS servers were reachable!$($Global:Colors.Reset)"
-        Print-BoxBlank
+    if ($top3.Count -eq 0) {
+        Write-Host "`e[31m❌ No DNS servers responded successfully!`e[0m"
         return
     }
     
-    Print-TopResultsHeader
+    $podium = @("🥇 GOLD", "🥈 SILVER", "🥉 BRONZE")
+    $colors = @("`e[33m", "`e[37m", "`e[31m")  # Gold, Silver, Bronze colors
     
-    $maxLatency = ($validResults | Measure-Object -Property AvgLatency -Maximum).Maximum
-    $medals = @("🥇", "🥈", "🥉")
-    
-    for ($i = 0; $i -lt $validResults.Count; $i++) {
-        $result = $validResults[$i]
-        $medal = $medals[$i]
-        $rank = $i + 1
+    for ($i = 0; $i -lt [math]::Min(3, $top3.Count); $i++) {
+        $server = $top3[$i]
+        $color = $colors[$i]
+        $position = $podium[$i]
         
-        $latencyText = "{0:F1}ms" -f $result.AvgLatency
-        $lossText = "{0:F1}%" -f $result.PacketLoss
-        
-        # Generate latency bar
-        $bar = Generate-LatencyBar -Latency $result.AvgLatency -MaxLatency $maxLatency
-        
-        # Format the result line
-        $resultLine = " $medal #$rank $($Global:Colors.Bold)$($result.Provider)$($Global:Colors.Reset) ($($result.IP)) - $latencyText"
-        Print-BoxLine -Content $resultLine
-        
-        $barLine = "     $bar ($lossText loss)"
-        Print-BoxLine -Content $barLine
-        
-        if ($i -lt $validResults.Count - 1) {
-            Print-BoxBlank
-        }
+        Write-Host "`n$color╔══════════════════════════════════════════════════════╗`e[0m"
+        Write-Host "$color║  $position - $($server.Name.PadRight(40)) ║`e[0m"
+        Write-Host "$color╠══════════════════════════════════════════════════════╣`e[0m"
+        Write-Host "$color║  📍 IP Address: $($server.IP.PadRight(35)) ║`e[0m"
+        Write-Host "$color║  ⚡ Response Time: $("$([math]::Round($server.AverageResponseTime, 2))ms".PadRight(30)) ║`e[0m"
+        Write-Host "$color║  📊 Success Rate: $("$($server.SuccessRate)%".PadRight(32)) ║`e[0m"
+        Write-Host "$color║  🎯 Status: $($server.Status.PadRight(38)) ║`e[0m"
+        Write-Host "$color╚══════════════════════════════════════════════════════╝`e[0m"
     }
     
-    Print-BoxBlank
-}
-
-# =============================================================================
-# MAIN EXECUTION FUNCTION
-# =============================================================================
-
-function Start-DNSBenchmark {
-    # Initialize
-    $Global:TestResults = @()
-    
-    # Print header
-    Print-Header
-    
-    # Test each DNS provider
-    foreach ($provider in $Global:DNSProviders) {
-        Test-DNSProvider -Provider $provider
+    # Recommendation
+    $fastest = $top3[0]
+    Write-Host "`n`e[32m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
+    Write-Host "`e[32m║                            🎯 RECOMMENDATION                         ║`e[0m"
+    Write-Host "`e[32m╠══════════════════════════════════════════════════════════════════════╣`e[0m"
+    Write-Host "`e[32m║  For optimal performance, use: $($fastest.Name)                ║`e[0m"
+    Write-Host "`e[32m║  Primary DNS: $($fastest.IP.PadRight(48)) ║`e[0m"
+    if ($top3.Count -gt 1) {
+        Write-Host "`e[32m║  Secondary DNS: $($top3[1].IP.PadRight(46)) ║`e[0m"
     }
+    Write-Host "`e[32m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
+}
+
+# Main Script Execution
+function Start-EnhancedDNSBenchmark {
+    Clear-Host
     
-    # Show top results
-    Show-TopResults
+    # Show animated banner
+    Show-AnimatedBanner
     
-    # Footer
-    Print-BoxSeparator
-    $footerText = "Benchmark completed! Tested $($Global:DNSProviders.Count) DNS providers with $Global:PING_COUNT pings each."
-    Print-BoxLine -Content (Center-Format -Text $footerText -Width ($Global:BOX_WIDTH - 4))
-    Print-BoxBlank
-    Print-BoxBottom
+    # Show system information with winfetch at start
+    Invoke-WinfetchStart
     
-    Write-Host ""
-    Write-Host "$($Global:Colors.Green)DNS Benchmark Complete!$($Global:Colors.Reset)" -ForegroundColor Green
-    Write-Host "Results saved to `$Global:TestResults variable for further analysis." -ForegroundColor Gray
+    # DNS servers to test with names
+    $dnsServers = @(
+        @{ Name = "Google Primary"; IP = "8.8.8.8" },
+        @{ Name = "Google Secondary"; IP = "8.8.4.4" },
+        @{ Name = "Cloudflare Primary"; IP = "1.1.1.1" },
+        @{ Name = "Cloudflare Secondary"; IP = "1.0.0.1" },
+        @{ Name = "OpenDNS Primary"; IP = "208.67.222.222" },
+        @{ Name = "OpenDNS Secondary"; IP = "208.67.220.220" },
+        @{ Name = "Quad9 Primary"; IP = "9.9.9.9" },
+        @{ Name = "Quad9 Secondary"; IP = "149.112.112.112" },
+        @{ Name = "AdGuard DNS"; IP = "94.140.14.14" },
+        @{ Name = "CleanBrowsing"; IP = "185.228.168.9" }
+    )
+    
+    Write-Host "`n`e[36m🚀 Initializing DNS benchmark on $($dnsServers.Count) servers...`e[0m"
+    Show-LoadingAnimation "Preparing DNS tests" 1
+    
+    # Run DNS benchmark
+    $benchmarkResults = Test-DNSWithBenchmark -DNSServers $dnsServers
+    
+    # Show detailed results
+    Show-DetailedResults -Results $benchmarkResults
+    
+    # Show top 3 DNS servers at the end
+    Show-Top3DNSServers -Results $benchmarkResults
+    
+    # Final message
+    Write-Host "`n`e[32m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
+    Write-Host "`e[32m║                    🎉 BENCHMARK COMPLETED SUCCESSFULLY! 🎉          ║`e[0m"
+    Write-Host "`e[32m║                                                                      ║`e[0m"
+    Write-Host "`e[32m║  Results saved in memory. Configure your network settings with      ║`e[0m"
+    Write-Host "`e[32m║  the recommended DNS servers for optimal internet performance.      ║`e[0m"
+    Write-Host "`e[32m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
+    
+    Write-Host "`n`e[35m📝 Script completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`e[0m"
 }
 
-# =============================================================================
-# SCRIPT ENTRY POINT
-# =============================================================================
-
-# Validate PowerShell version
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Error "This script requires PowerShell 7.0 or higher. Current version: $($PSVersionTable.PSVersion)"
-    exit 1
-}
-
-# Check for Windows platform
-if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
-    Write-Warning "This script is optimized for Windows. Some features may not work correctly on other platforms."
-}
-
-# Run the benchmark
-try {
-    Start-DNSBenchmark
-}
-catch {
-    Write-Error "An error occurred during the DNS benchmark: $($_.Exception.Message)"
-    Write-Error "Stack Trace: $($_.ScriptStackTrace)"
-}
-
-# Export results to CSV option
-$exportChoice = Read-Host "`nWould you like to export results to CSV? (y/N)"
-if ($exportChoice -eq 'y' -or $exportChoice -eq 'Y') {
-    $csvPath = "DNS-Benchmark-Results-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
-    $Global:TestResults | Export-Csv -Path $csvPath -NoTypeInformation
-    Write-Host "Results exported to: $csvPath" -ForegroundColor Green
-}
+# Execute the enhanced DNS benchmark
+Start-EnhancedDNSBenchmark
