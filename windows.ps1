@@ -1,268 +1,219 @@
-# Enhanced DNS Testing Script with Winfetch Integration and Visual Appeal
-# Execute this script in PowerShell
+# Modern DNS Benchmark Tool with Enhanced Visual Appeal
+# Requires PowerShell 7+ for best color support
 
-function Show-AnimatedBanner {
-    $banner = @"
-`e[35m
-╔══════════════════════════════════════════════════════════════════════╗
-║  ██████╗ ███╗   ██╗███████╗    ████████╗███████╗███████╗████████╗    ║
-║  ██╔══██╗████╗  ██║██╔════╝    ╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝    ║
-║  ██║  ██║██╔██╗ ██║███████╗       ██║   █████╗  ███████╗   ██║       ║
-║  ██║  ██║██║╚██╗██║╚════██║       ██║   ██╔══╝  ╚════██║   ██║       ║
-║  ██████╔╝██║ ╚████║███████║       ██║   ███████╗███████║   ██║       ║
-║  ╚═════╝ ╚═╝  ╚═══╝╚══════╝       ╚═╝   ╚══════╝╚══════╝   ╚═╝       ║
-║                                                                      ║
-║              🌐 DNS Benchmark Tool with System Info 🌐              ║
-╚══════════════════════════════════════════════════════════════════════╝
-`e[0m
-"@
-    Write-Host $banner
+function Show-ModernBanner {
+    Clear-Host
+    Write-Host ""
+    Write-Host "`e[38;5;51m    ██████╗ ███╗   ██╗███████╗    ████████╗███████╗███████╗████████╗`e[0m" -ForegroundColor Cyan
+    Write-Host "`e[38;5;45m    ██╔══██╗████╗  ██║██╔════╝    ╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝`e[0m" -ForegroundColor Cyan
+    Write-Host "`e[38;5;39m    ██║  ██║██╔██╗ ██║███████╗       ██║   █████╗  ███████╗   ██║   `e[0m" -ForegroundColor Cyan
+    Write-Host "`e[38;5;33m    ██║  ██║██║╚██╗██║╚════██║       ██║   ██╔══╝  ╚════██║   ██║   `e[0m" -ForegroundColor Cyan
+    Write-Host "`e[38;5;27m    ██████╔╝██║ ╚████║███████║       ██║   ███████╗███████║   ██║   `e[0m" -ForegroundColor Cyan
+    Write-Host "`e[38;5;21m    ╚═════╝ ╚═╝  ╚═══╝╚══════╝       ╚═╝   ╚══════╝╚══════╝   ╚═╝   `e[0m" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "`e[38;5;75m                    🚀 Modern DNS Benchmark & System Info Tool 🚀`e[0m" -ForegroundColor Cyan
+    Write-Host "`e[38;5;69m                           Performance • Speed • Reliability`e[0m" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "`e[38;5;240m" + "─" * 80 + "`e[0m"
+    Write-Host ""
 }
 
-function Show-LoadingAnimation {
-    param([string]$Message, [int]$Duration = 2)
-    
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $counter = 0
-    $endTime = (Get-Date).AddSeconds($Duration)
-    
-    while ((Get-Date) -lt $endTime) {
-        $frame = $spinner[$counter % $spinner.Length]
-        Write-Host "`r`e[36m$frame $Message`e[0m" -NoNewline
-        Start-Sleep -Milliseconds 100
-        $counter++
-    }
-    Write-Host "`r`e[32m✅ $Message - Complete!`e[0m"
-}
-
-function Invoke-WinfetchStart {
-    Write-Host "`n`e[33m╔═══════════════════════════════════════════════════════════════╗`e[0m"
-    Write-Host "`e[33m║                    SYSTEM INFORMATION                        ║`e[0m"
-    Write-Host "`e[33m╚═══════════════════════════════════════════════════════════════╝`e[0m"
-    
-    Show-LoadingAnimation "Loading System Information"
-    
-    try {
-        # Execute winfetch directly without saving to disk
-        (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content.Remove(0,1) | Invoke-Expression
-        Write-Host "`e[32m[SUCCESS] System information loaded successfully!`e[0m"
-    } catch {
-        Write-Host "`e[31m[ERROR] Failed to load Winfetch. Showing basic system info...`e[0m"
-        # Fallback system info
-        Write-Host "`e[36mComputer: $env:COMPUTERNAME`e[0m"
-        Write-Host "`e[36mUser: $env:USERNAME`e[0m"
-        Write-Host "`e[36mOS: $(Get-WmiObject Win32_OperatingSystem | Select-Object -ExpandProperty Caption)`e[0m"
-    }
-}
-
-function Show-ColoredProgress {
+function Show-SmoothProgress {
     param(
-        [string]$Activity,
-        [string]$Status,
-        [int]$PercentComplete,
-        [string]$Color = "Green"
+        [string]$Task,
+        [int]$Current,
+        [int]$Total,
+        [string]$Status = "",
+        [string]$Color = "Cyan"
     )
     
-    Write-Progress -Activity $Activity -Status $Status -PercentComplete $PercentComplete
+    $percentage = [math]::Round(($Current / $Total) * 100)
+    $completed = [math]::Floor($percentage / 2.5)  # 40 character bar
+    $remaining = 40 - $completed
     
-    $colorCode = switch ($Color) {
-        "Green" { "`e[32m" }
-        "Yellow" { "`e[33m" }
-        "Red" { "`e[31m" }
-        "Blue" { "`e[34m" }
-        "Cyan" { "`e[36m" }
-        "Magenta" { "`e[35m" }
-        default { "`e[37m" }
+    $progressBar = "`e[38;5;46m" + "█" * $completed + "`e[38;5;240m" + "░" * $remaining + "`e[0m"
+    
+    Write-Host "`r`e[2K`e[38;5;75m┌─ $Task`e[0m" -NoNewline
+    Write-Host ""
+    Write-Host "`e[38;5;75m│`e[0m [$progressBar] `e[38;5;255m$percentage%`e[0m" -NoNewline
+    if ($Status) {
+        Write-Host " `e[38;5;249m• $Status`e[0m" -NoNewline
     }
-    
-    $progressBar = ""
-    $completed = [math]::Floor($PercentComplete / 5)
-    $remaining = 20 - $completed
-    
-    for ($i = 0; $i -lt $completed; $i++) { $progressBar += "█" }
-    for ($i = 0; $i -lt $remaining; $i++) { $progressBar += "░" }
-    
-    Write-Host "`r${colorCode}[$progressBar] $PercentComplete% - $Status`e[0m" -NoNewline
+    Write-Host ""
 }
 
-function Test-DNSWithBenchmark {
-    param([array]$DNSServers)
+function Invoke-ModernWinfetch {
+    Write-Host "`e[38;5;117m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`e[0m"
+    Write-Host "`e[38;5;117m┃`e[0m `e[38;5;255m                           💻 System Information                          `e[0m `e[38;5;117m┃`e[0m"
+    Write-Host "`e[38;5;117m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`e[0m"
+    Write-Host ""
     
-    Write-Host "`n`n`e[33m╔═══════════════════════════════════════════════════════════════╗`e[0m"
-    Write-Host "`e[33m║                    DNS BENCHMARK STARTED                     ║`e[0m"
-    Write-Host "`e[33m╚═══════════════════════════════════════════════════════════════╝`e[0m"
+    # Smooth loading effect
+    $loadingFrames = @("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    for ($i = 0; $i -lt 15; $i++) {
+        $frame = $loadingFrames[$i % $loadingFrames.Length]
+        Write-Host "`r`e[38;5;51m    $frame Fetching system information...`e[0m" -NoNewline
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Host "`r`e[2K`e[38;5;46m    ✓ System information loaded`e[0m"
+    Write-Host ""
     
-    $totalServers = $DNSServers.Count
+    try {
+        (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content.Remove(0,1) | Invoke-Expression
+    } catch {
+        # Modern fallback display
+        Write-Host "`e[38;5;255m    Computer:`e[0m `e[38;5;117m$env:COMPUTERNAME`e[0m"
+        Write-Host "`e[38;5;255m    User:`e[0m     `e[38;5;117m$env:USERNAME`e[0m"
+        Write-Host "`e[38;5;255m    OS:`e[0m       `e[38;5;117m$(Get-WmiObject Win32_OperatingSystem | Select-Object -ExpandProperty Caption)`e[0m"
+    }
+    Write-Host ""
+}
+
+function Test-ModernDNS {
+    param([array]$DNSList)
+    
+    Write-Host ""
+    Write-Host "`e[38;5;214m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`e[0m"
+    Write-Host "`e[38;5;214m┃`e[0m `e[38;5;255m                            🎯 DNS Benchmark                              `e[0m `e[38;5;214m┃`e[0m"
+    Write-Host "`e[38;5;214m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`e[0m"
+    Write-Host ""
+    
     $results = @()
-    $testDomains = @("google.com", "youtube.com", "github.com", "microsoft.com")
+    $domains = @("google.com", "github.com", "youtube.com")
+    $totalTests = $DNSList.Count
     
-    for ($i = 0; $i -lt $totalServers; $i++) {
-        $server = $DNSServers[$i]
-        $serverName = $server.Name
-        $serverIP = $server.IP
-        $percentComplete = [math]::Round(($i / $totalServers) * 100)
+    for ($i = 0; $i -lt $totalTests; $i++) {
+        $dns = $DNSList[$i]
+        $serverName = $dns.Name
+        $serverIP = $dns.IP
         
-        Write-Host "`n`e[36m🔍 Testing: $serverName ($serverIP)`e[0m"
-        Show-ColoredProgress -Activity "DNS Benchmark Progress" -Status "Testing $serverName" -PercentComplete $percentComplete -Color "Cyan"
+        # Modern server header
+        Write-Host "`e[38;5;255m  ┌─ Testing: `e[38;5;117m$serverName`e[38;5;255m ($serverIP)`e[0m"
         
-        $totalResponseTime = 0
-        $successfulTests = 0
-        $testResults = @()
+        Show-SmoothProgress -Task "DNS Resolution" -Current ($i + 1) -Total $totalTests -Status $serverName
         
-        foreach ($domain in $testDomains) {
+        $totalTime = 0
+        $successful = 0
+        
+        foreach ($domain in $domains) {
             try {
-                $responseTime = (Measure-Command { 
+                $time = (Measure-Command { 
                     Resolve-DnsName -Name $domain -Server $serverIP -ErrorAction Stop 
                 }).TotalMilliseconds
+                $totalTime += $time
+                $successful++
                 
-                $totalResponseTime += $responseTime
-                $successfulTests++
-                $testResults += "✅ $domain ($([math]::Round($responseTime, 1))ms)"
-                
+                # Subtle domain test indicator
+                Write-Host "`e[38;5;255m  │ `e[38;5;46m●`e[0m `e[38;5;249m$domain`e[0m `e[38;5;240m($([math]::Round($time, 1))ms)`e[0m"
             } catch {
-                $testResults += "❌ $domain (Failed)"
+                Write-Host "`e[38;5;255m  │ `e[38;5;196m●`e[0m `e[38;5;249m$domain`e[0m `e[38;5;240m(failed)`e[0m"
             }
-            
-            # Mini progress for each domain test
-            $domainProgress = ($testDomains.IndexOf($domain) + 1) / $testDomains.Count * 20
-            $currentPercent = $percentComplete + $domainProgress
-            Show-ColoredProgress -Activity "Testing domains" -Status "$domain on $serverName" -PercentComplete $currentPercent -Color "Yellow"
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds 100
         }
         
-        if ($successfulTests -gt 0) {
-            $avgResponseTime = $totalResponseTime / $successfulTests
-            $results += [PSCustomObject]@{
-                Name = $serverName
-                IP = $serverIP
-                AverageResponseTime = $avgResponseTime
-                SuccessfulTests = $successfulTests
-                TotalTests = $testDomains.Count
-                SuccessRate = [math]::Round(($successfulTests / $testDomains.Count) * 100, 1)
-                Status = if ($successfulTests -eq $testDomains.Count) { "Excellent" } 
-                        elseif ($successfulTests -ge 2) { "Good" } 
-                        else { "Poor" }
-                Color = if ($successfulTests -eq $testDomains.Count) { "Green" } 
-                       elseif ($successfulTests -ge 2) { "Yellow" } 
-                       else { "Red" }
-                TestDetails = $testResults
-            }
+        if ($successful -gt 0) {
+            $avgTime = $totalTime / $successful
+            $successRate = ($successful / $domains.Count) * 100
             
-            Write-Host "`n`e[32m   ✅ Average Response: $([math]::Round($avgResponseTime, 2))ms | Success Rate: $([math]::Round(($successfulTests / $testDomains.Count) * 100, 1))%`e[0m"
-        } else {
+            # Clean result display
+            $statusEmoji = if ($successRate -eq 100) { "🟢" } elseif ($successRate -ge 66) { "🟡" } else { "🔴" }
+            Write-Host "`e[38;5;255m  └─ Result: $statusEmoji `e[38;5;117m$([math]::Round($avgTime, 1))ms`e[38;5;255m avg • `e[38;5;117m$([math]::Round($successRate, 0))%`e[38;5;255m success`e[0m"
+            
             $results += [PSCustomObject]@{
                 Name = $serverName
                 IP = $serverIP
-                AverageResponseTime = 9999
-                SuccessfulTests = 0
-                TotalTests = $testDomains.Count
+                AvgTime = $avgTime
+                SuccessRate = $successRate
+                Status = if ($successRate -eq 100) { "Excellent" } elseif ($successRate -ge 66) { "Good" } else { "Poor" }
+                Emoji = $statusEmoji
+            }
+        } else {
+            Write-Host "`e[38;5;255m  └─ Result: 🔴 `e[38;5;196mAll tests failed`e[0m"
+            $results += [PSCustomObject]@{
+                Name = $serverName
+                IP = $serverIP
+                AvgTime = 9999
                 SuccessRate = 0
                 Status = "Failed"
-                Color = "Red"
-                TestDetails = $testResults
+                Emoji = "🔴"
             }
-            Write-Host "`n`e[31m   ❌ All tests failed for $serverName`e[0m"
         }
+        Write-Host ""
+        Start-Sleep -Milliseconds 200
     }
     
-    Write-Progress -Activity "DNS Benchmark Complete" -Status "All tests finished" -PercentComplete 100 -Completed
-    Write-Host "`n"
-    
-    return $results | Sort-Object AverageResponseTime
+    return $results | Sort-Object AvgTime
 }
 
-function Show-DetailedResults {
+function Show-ModernTop3 {
     param([array]$Results)
     
-    Write-Host "`e[35m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
-    Write-Host "`e[35m║                         DETAILED DNS RESULTS                        ║`e[0m"
-    Write-Host "`e[35m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
+    $top3 = $Results | Where-Object { $_.SuccessRate -gt 0 } | Select-Object -First 3
     
-    $rank = 1
-    foreach ($result in $Results) {
-        $colorCode = switch ($result.Color) {
-            "Green" { "`e[32m" }
-            "Yellow" { "`e[33m" }
-            "Red" { "`e[31m" }
-        }
-        
-        $medal = switch ($rank) {
-            1 { "🥇" }
-            2 { "🥈" }
-            3 { "🥉" }
-            default { "  " }
-        }
-        
-        Write-Host "`n${colorCode}$medal #$rank - $($result.Name) ($($result.IP))`e[0m"
-        Write-Host "${colorCode}   ⚡ Avg Response: $([math]::Round($result.AverageResponseTime, 2))ms`e[0m"
-        Write-Host "${colorCode}   📊 Success Rate: $($result.SuccessRate)% ($($result.SuccessfulTests)/$($result.TotalTests))`e[0m"
-        Write-Host "${colorCode}   📈 Status: $($result.Status)`e[0m"
-        
-        Write-Host "`e[37m   📋 Test Details:`e[0m"
-        foreach ($detail in $result.TestDetails) {
-            Write-Host "      $detail"
-        }
-        
-        $rank++
-    }
-}
-
-function Show-Top3DNSServers {
-    param([array]$Results)
-    
-    $top3 = $Results | Where-Object { $_.SuccessfulTests -gt 0 } | Select-Object -First 3
-    
-    Write-Host "`n`e[33m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
-    Write-Host "`e[33m║                         🏆 TOP 3 DNS SERVERS 🏆                     ║`e[0m"
-    Write-Host "`e[33m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
+    Write-Host ""
+    Write-Host "`e[38;5;226m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`e[0m"
+    Write-Host "`e[38;5;226m┃`e[0m `e[38;5;255m                             🏆 Top 3 Winners                              `e[0m `e[38;5;226m┃`e[0m"
+    Write-Host "`e[38;5;226m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`e[0m"
+    Write-Host ""
     
     if ($top3.Count -eq 0) {
-        Write-Host "`e[31m❌ No DNS servers responded successfully!`e[0m"
+        Write-Host "`e[38;5;196m    ❌ No DNS servers responded successfully`e[0m"
         return
     }
     
-    $podium = @("🥇 GOLD", "🥈 SILVER", "🥉 BRONZE")
-    $colors = @("`e[33m", "`e[37m", "`e[31m")  # Gold, Silver, Bronze colors
+    $medals = @("🥇", "🥈", "🥉")
+    $colors = @("226", "255", "208")  # Gold, Silver, Bronze
     
     for ($i = 0; $i -lt [math]::Min(3, $top3.Count); $i++) {
         $server = $top3[$i]
         $color = $colors[$i]
-        $position = $podium[$i]
+        $medal = $medals[$i]
+        $rank = $i + 1
         
-        Write-Host "`n$color╔══════════════════════════════════════════════════════╗`e[0m"
-        Write-Host "$color║  $position - $($server.Name.PadRight(40)) ║`e[0m"
-        Write-Host "$color╠══════════════════════════════════════════════════════╣`e[0m"
-        Write-Host "$color║  📍 IP Address: $($server.IP.PadRight(35)) ║`e[0m"
-        Write-Host "$color║  ⚡ Response Time: $("$([math]::Round($server.AverageResponseTime, 2))ms".PadRight(30)) ║`e[0m"
-        Write-Host "$color║  📊 Success Rate: $("$($server.SuccessRate)%".PadRight(32)) ║`e[0m"
-        Write-Host "$color║  🎯 Status: $($server.Status.PadRight(38)) ║`e[0m"
-        Write-Host "$color╚══════════════════════════════════════════════════════╝`e[0m"
+        Write-Host "`e[38;5;$color    $medal Rank #$rank`e[0m"
+        Write-Host "`e[38;5;255m    ┌─ `e[38;5;117m$($server.Name)`e[0m"
+        Write-Host "`e[38;5;255m    │  📍 IP: `e[38;5;117m$($server.IP)`e[0m"
+        Write-Host "`e[38;5;255m    │  ⚡ Speed: `e[38;5;117m$([math]::Round($server.AvgTime, 1))ms`e[0m"
+        Write-Host "`e[38;5;255m    │  📊 Success: `e[38;5;117m$([math]::Round($server.SuccessRate, 0))%`e[0m"
+        Write-Host "`e[38;5;255m    └─ Status: `e[38;5;117m$($server.Status) $($server.Emoji)`e[0m"
+        Write-Host ""
     }
     
-    # Recommendation
-    $fastest = $top3[0]
-    Write-Host "`n`e[32m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
-    Write-Host "`e[32m║                            🎯 RECOMMENDATION                         ║`e[0m"
-    Write-Host "`e[32m╠══════════════════════════════════════════════════════════════════════╣`e[0m"
-    Write-Host "`e[32m║  For optimal performance, use: $($fastest.Name)                ║`e[0m"
-    Write-Host "`e[32m║  Primary DNS: $($fastest.IP.PadRight(48)) ║`e[0m"
+    # Clean recommendation
+    Write-Host "`e[38;5;46m┌─ 💡 Recommendation`e[0m"
+    Write-Host "`e[38;5;46m│`e[0m  Primary DNS: `e[38;5;117m$($top3[0].IP)`e[38;5;255m ($($top3[0].Name))`e[0m"
     if ($top3.Count -gt 1) {
-        Write-Host "`e[32m║  Secondary DNS: $($top3[1].IP.PadRight(46)) ║`e[0m"
+        Write-Host "`e[38;5;46m│`e[0m  Secondary DNS: `e[38;5;117m$($top3[1].IP)`e[38;5;255m ($($top3[1].Name))`e[0m"
     }
-    Write-Host "`e[32m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
+    Write-Host "`e[38;5;46m└─`e[0m Configure these in your network settings for optimal performance"
+    Write-Host ""
 }
 
-# Main Script Execution
-function Start-EnhancedDNSBenchmark {
-    Clear-Host
+function Show-CompletionSummary {
+    param([array]$Results)
     
-    # Show animated banner
-    Show-AnimatedBanner
+    $successful = ($Results | Where-Object { $_.SuccessRate -gt 0 }).Count
+    $fastest = $Results | Where-Object { $_.SuccessRate -gt 0 } | Select-Object -First 1
     
-    # Show system information with winfetch at start
-    Invoke-WinfetchStart
+    Write-Host "`e[38;5;240m" + "─" * 80 + "`e[0m"
+    Write-Host ""
+    Write-Host "`e[38;5;46m    ✅ Benchmark completed successfully!`e[0m"
+    Write-Host "`e[38;5;255m    📈 Tested: `e[38;5;117m$($Results.Count)`e[38;5;255m servers • Responding: `e[38;5;117m$successful`e[38;5;255m servers`e[0m"
+    if ($fastest) {
+        Write-Host "`e[38;5;255m    🚀 Fastest: `e[38;5;117m$($fastest.Name)`e[38;5;255m at `e[38;5;117m$([math]::Round($fastest.AvgTime, 1))ms`e[0m"
+    }
+    Write-Host "`e[38;5;255m    🕒 Completed: `e[38;5;117m$(Get-Date -Format 'HH:mm:ss')`e[0m"
+    Write-Host ""
+}
+
+# Main execution function
+function Start-ModernDNSBenchmark {
+    Show-ModernBanner
     
-    # DNS servers to test with names
+    # Show system info first
+    Invoke-ModernWinfetch
+    
+    # Modern DNS server list
     $dnsServers = @(
         @{ Name = "Google Primary"; IP = "8.8.8.8" },
         @{ Name = "Google Secondary"; IP = "8.8.4.4" },
@@ -273,30 +224,18 @@ function Start-EnhancedDNSBenchmark {
         @{ Name = "Quad9 Primary"; IP = "9.9.9.9" },
         @{ Name = "Quad9 Secondary"; IP = "149.112.112.112" },
         @{ Name = "AdGuard DNS"; IP = "94.140.14.14" },
+        @{ Name = "CleanBrowsing"; IP = "185.228.168.9" }
     )
     
-    Write-Host "`n`e[36m🚀 Initializing DNS benchmark on $($dnsServers.Count) servers...`e[0m"
-    Show-LoadingAnimation "Preparing DNS tests" 1
+    # Run the benchmark
+    $results = Test-ModernDNS -DNSList $dnsServers
     
-    # Run DNS benchmark
-    $benchmarkResults = Test-DNSWithBenchmark -DNSServers $dnsServers
+    # Show top 3 results
+    Show-ModernTop3 -Results $results
     
-    # Show detailed results
-    Show-DetailedResults -Results $benchmarkResults
-    
-    # Show top 3 DNS servers at the end
-    Show-Top3DNSServers -Results $benchmarkResults
-    
-    # Final message
-    Write-Host "`n`e[32m╔══════════════════════════════════════════════════════════════════════╗`e[0m"
-    Write-Host "`e[32m║                    🎉 BENCHMARK COMPLETED SUCCESSFULLY! 🎉          ║`e[0m"
-    Write-Host "`e[32m║                                                                      ║`e[0m"
-    Write-Host "`e[32m║  Results saved in memory. Configure your network settings with      ║`e[0m"
-    Write-Host "`e[32m║  the recommended DNS servers for optimal internet performance.      ║`e[0m"
-    Write-Host "`e[32m╚══════════════════════════════════════════════════════════════════════╝`e[0m"
-    
-    Write-Host "`n`e[35m📝 Script completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`e[0m"
+    # Show completion summary
+    Show-CompletionSummary -Results $results
 }
 
-# Execute the enhanced DNS benchmark
-Start-EnhancedDNSBenchmark
+# Execute the modern DNS benchmark
+Start-ModernDNSBenchmark
