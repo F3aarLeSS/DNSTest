@@ -273,7 +273,6 @@ function Start-EnhancedDNSBenchmark {
         @{ Name = "Quad9 Primary"; IP = "9.9.9.9" },
         @{ Name = "Quad9 Secondary"; IP = "149.112.112.112" },
         @{ Name = "AdGuard DNS"; IP = "94.140.14.14" },
-        @{ Name = "CleanBrowsing"; IP = "185.228.168.9" }
     )
     
     Write-Host "`n`e[36m🚀 Initializing DNS benchmark on $($dnsServers.Count) servers...`e[0m"
