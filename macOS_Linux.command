@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dns_benchmark.command
+# macOS_Linux.command
 #
 # A script to install Homebrew & dependencies (if missing), then run a latency
 # test against popular DNS servers and display a summary of the top 3.
@@ -15,10 +15,17 @@ esc=$'\033'
 RESET="${esc}[0m"; BOLD="${esc}[1m"; DIM="${esc}[2m"
 FG_RED="${esc}[31m"; FG_GREEN="${esc}[32m"; FG_YELLOW="${esc}[33m"
 FG_BLUE="${esc}[34m"; FG_MAGENTA="${esc}[35m"; FG_CYAN="${esc}[36m"
+FG_WHITE="${esc}[37m"; FG_GRAY="${esc}[90m"; FG_BROWN="${esc}[38;5;130m"
+FG_ORANGE="${esc}[38;5;214m"; FG_BRIGHT_WHITE="${esc}[97m"
 
 # --- Global Variables & Cleanup ---
-COLUMNS=${COLUMNS:-100}
+TERMINAL_COLS=$(tput cols)
+COLUMNS=${COLUMNS:-$TERMINAL_COLS}
 BOX_WIDTH=96
+
+# Calculate centering offset
+CENTER_OFFSET=$(( (TERMINAL_COLS - BOX_WIDTH) / 2 ))
+[[ $CENTER_OFFSET -lt 0 ]] && CENTER_OFFSET=0
 
 # Create secure temporary files for results
 TMP_RESULTS="$(mktemp)"
@@ -31,14 +38,176 @@ cleanup(){
 }
 trap cleanup EXIT INT TERM
 
+# --- Centering Helper Function ---
+center_print() {
+    local content="$1"
+    printf "%*s%s\n" "$CENTER_OFFSET" "" "$content"
+}
+
+center_printf() {
+    local format_str="$1"; shift
+    local content; content=$(printf "$format_str" "$@")
+    center_print "$content"
+}
+
+# --- Installation Banner Functions ---
+show_installation_banner() {
+    local title="$1"
+    local subtitle="${2:-}"
+    
+    printf "\n"
+    center_printf "%s%s╔══════════════════════════════════════════════════════════════════════════════╗" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s║                                                                              ║" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s║                            🚀 DNS BENCHMARK SETUP 🚀                         ║" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s║                                                                              ║" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s╠══════════════════════════════════════════════════════════════════════════════╣" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s║                                                                              ║" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s║  %-74s  ║%s" "$BOLD" "$FG_CYAN" "$title" "$RESET"
+    if [[ -n "$subtitle" ]]; then
+        center_printf "%s%s║  %-74s  ║%s" "$BOLD" "$FG_CYAN" "$subtitle" "$RESET"
+    fi
+    center_printf "%s%s║                                                                              ║" "$BOLD" "$FG_CYAN"
+    center_printf "%s%s╚══════════════════════════════════════════════════════════════════════════════╝%s" "$BOLD" "$FG_CYAN" "$RESET"
+    printf "\n"
+}
+
+simple_spinner() {
+    local message="$1"
+    local pid="$2"
+    local spinner_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    local i=0
+    
+    while kill -0 "$pid" 2>/dev/null; do
+        local spinner_char=${spinner_chars:i%${#spinner_chars}:1}
+        printf "\r%*s${FG_YELLOW}%s${RESET} %s..." "$CENTER_OFFSET" "" "$spinner_char" "$message"
+        sleep 0.2
+        ((i++))
+    done
+    
+    wait "$pid"
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+        printf "\r%*s${FG_GREEN}✔${RESET} %s... ${FG_GREEN}Complete!${RESET}\n" "$CENTER_OFFSET" "" "$message"
+    else
+        printf "\r%*s${FG_RED}✖${RESET} %s... ${FG_RED}Failed!${RESET}\n" "$CENTER_OFFSET" "" "$message"
+    fi
+    
+    return $exit_code
+}
+
+# --- Core Logic ---
+ensure_dependencies() {
+    # Check if Homebrew is installed
+    if ! command -v brew >/dev/null 2>&1; then
+        show_installation_banner "Installing Homebrew Package Manager" "This may take a few minutes and require your password..."
+        
+        center_printf "${FG_YELLOW}🍺 Starting Homebrew installation...${RESET}"
+        center_printf "${FG_BLUE}   You may be prompted for your password by the installer.${RESET}"
+        printf "\n"
+        
+        # Install Homebrew with live output (user interaction needed)
+        if ! /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+            printf "\n"
+            center_printf "${FG_RED}❌ Homebrew installation failed. Continuing with basic visuals.${RESET}"
+            sleep 2
+            return 0
+        fi
+        
+        printf "\n"
+        center_printf "${FG_GREEN}🎉 Homebrew installation completed successfully!${RESET}"
+        sleep 1
+    fi
+    
+    # Add Homebrew to PATH
+    if [[ -x "/opt/homebrew/bin/brew" ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -x "/usr/local/bin/brew" ]]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+    elif [[ -d "$HOME/.linuxbrew" ]]; then
+        eval "$($HOME/.linuxbrew/bin/brew shellenv)"
+    elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
+        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+    fi
+    
+    # Verify Homebrew is now available
+    if ! command -v brew >/dev/null 2>&1; then
+        printf "\n"
+        center_printf "${FG_RED}❌ Homebrew installation failed. Continuing with basic visuals.${RESET}"
+        sleep 2
+        return 0
+    fi
+    
+    # Check for missing packages
+    local missing_packages=()
+    for pkg in neofetch figlet lolcat; do
+        if ! command -v "$pkg" >/dev/null 2>&1; then
+            missing_packages+=("$pkg")
+        fi
+    done
+    
+    # Install missing packages if any
+    if (( ${#missing_packages[@]} > 0 )); then
+        show_installation_banner "Installing Required Dependencies" "Installing: ${missing_packages[*]}"
+        
+        center_printf "${FG_YELLOW}📦 Installing dependencies for enhanced visuals...${RESET}"
+        printf "\n"
+        
+        # Update Homebrew first
+        center_printf "${FG_BLUE}🔄 Updating Homebrew...${RESET}"
+        {
+            brew update >/dev/null 2>&1
+        } &
+        if simple_spinner "Updating package lists" $!; then
+            printf "\n"
+        else
+            center_printf "${FG_YELLOW}⚠️  Update failed, continuing anyway...${RESET}"
+            printf "\n"
+        fi
+        
+        # Install each package
+        local failed_packages=()
+        for pkg in "${missing_packages[@]}"; do
+            center_printf "${FG_BLUE}📦 Installing ${BOLD}$pkg${RESET}${FG_BLUE}...${RESET}"
+            {
+                brew install "$pkg" >/dev/null 2>&1
+            } &
+            
+            if simple_spinner "Installing $pkg" $!; then
+                printf "\n"
+            else
+                failed_packages+=("$pkg")
+                printf "\n"
+            fi
+        done
+        
+        # Report results
+        local successful_count=$((${#missing_packages[@]} - ${#failed_packages[@]}))
+        if (( successful_count > 0 )); then
+            center_printf "${FG_GREEN}🎉 Successfully installed $successful_count package(s)!${RESET}"
+        fi
+        
+        if (( ${#failed_packages[@]} > 0 )); then
+            center_printf "${FG_YELLOW}⚠️  Some packages failed to install: ${failed_packages[*]}${RESET}"
+            center_printf "${FG_YELLOW}   Continuing with reduced visuals...${RESET}"
+        else
+            center_printf "${FG_CYAN}🌟 Enhanced visuals are now available!${RESET}"
+        fi
+        
+        sleep 2
+    fi
+}
+
 # --- Visual Helper Functions ---
 print_header() {
     local title=" $1 "
     local color="${2:-$FG_BLUE}"
-    local pad_len=$(( (COLUMNS - ${#title}) / 2 ))
+    local pad_len=$(( (BOX_WIDTH - ${#title}) / 2 ))
     (( pad_len < 0 )) && pad_len=0
     local padding; padding=$(printf "%${pad_len}s" | tr ' ' '─')
-    printf "\n%s%s%s%s%s%s\n\n" "${BOLD}${color}" "$padding" "$title" "$padding" "$( (( (${#title} + pad_len * 2) < COLUMNS )) && printf "─" )" "$RESET"
+    printf "\n"
+    center_printf "%s%s%s%s%s%s%s" "${BOLD}${color}" "$padding" "$title" "$padding" "$( (( (${#title} + pad_len * 2) < BOX_WIDTH )) && printf "─" )" "$RESET"
+    printf "\n"
 }
 
 print_double_line_header() {
@@ -46,13 +215,12 @@ print_double_line_header() {
     local color="${2:-$FG_BLUE}"
     local clean_title; clean_title=$(echo -e "$title" | sed 's/\x1b\[[0-9;]*m//g')
     local title_len=${#clean_title}
-    local box_width=$(( title_len + 2 ))
-    local pad_len=$(( (COLUMNS - box_width) / 2 ))
-    (( pad_len < 0 )) && pad_len=0
-    local padding; padding=$(printf "%${pad_len}s")
-    printf "\n%s%s╔%s╗" "$padding" "${BOLD}${color}" "$(printf '═%.0s' $(seq 1 $title_len))"
-    printf "\n%s%s║%s║" "$padding" "${BOLD}${color}" "$title"
-    printf "\n%s%s╚%s╝%s\n\n" "$padding" "${BOLD}${color}" "$(printf '═%.0s' $(seq 1 $title_len))" "$RESET"
+    
+    printf "\n"
+    center_printf "%s%s╔%s╗" "${BOLD}${color}" "$(printf '═%.0s' $(seq 1 $title_len))"
+    center_printf "%s%s║%s║" "${BOLD}${color}" "$title"
+    center_printf "%s%s╚%s╝%s" "${BOLD}${color}" "$(printf '═%.0s' $(seq 1 $title_len))" "$RESET"
+    printf "\n"
 }
 
 # --- Box Drawing Functions ---
@@ -62,7 +230,7 @@ box_print() {
     local content_len=${#clean_content}
     local padding=$((BOX_WIDTH - 4 - content_len))
     ((padding < 0)) && padding=0
-    printf "│ %s%*s │\n" "$content" "$padding" ""
+    center_printf "│ %s%*s │" "$content" "$padding" ""
 }
 
 box_printf() {
@@ -71,10 +239,21 @@ box_printf() {
     box_print "$content"
 }
 
-print_box_top() { printf "╭%s╮\n" "$(printf '─%.0s' $(seq 1 $((BOX_WIDTH-2))))"; }
-print_box_separator() { printf "├%s┤\n" "$(printf '─%.0s' $(seq 1 $((BOX_WIDTH-2))))"; }
-print_box_bottom() { printf "╰%s╯\n" "$(printf '─%.0s' $(seq 1 $((BOX_WIDTH-2))))"; }
-box_print_blank() { printf "│%*s│\n" "$((BOX_WIDTH-2))" ""; }
+print_box_top() { 
+    center_printf "╭%s╮" "$(printf '─%.0s' $(seq 1 $((BOX_WIDTH-2))))"
+}
+
+print_box_separator() { 
+    center_printf "├%s┤" "$(printf '─%.0s' $(seq 1 $((BOX_WIDTH-2))))"
+}
+
+print_box_bottom() { 
+    center_printf "╰%s╯" "$(printf '─%.0s' $(seq 1 $((BOX_WIDTH-2))))"
+}
+
+box_print_blank() { 
+    center_printf "│%*s│" "$((BOX_WIDTH-2))" ""
+}
 
 box_print_provider_header() {
     local provider_name=" $1 "
@@ -87,16 +266,15 @@ box_print_provider_header() {
     if (( (name_len + pad_len * 2) < total_width )); then 
         right_pad="${right_pad}╌"
     fi
-    box_print "${DIM}${left_pad}${RESET}${BOLD}${FG_YELLOW}${provider_name}${RESET}${DIM}${right_pad}${RESET}"
+    box_print "${left_pad}${BOLD}${FG_YELLOW}${provider_name}${RESET}${right_pad}"
 }
 
 generate_latency_bar() {
     local latency_ms="$1"
-    ! [[ "$latency_ms" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf "%-18s" "" && return
+    ! [[ "$latency_ms" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf "" && return
     
     local lat_int=${latency_ms%.*}
     local bar_char="■"
-    local max_bar_width=18
     local bar_color
     
     if (( lat_int < 30 )); then 
@@ -107,12 +285,13 @@ generate_latency_bar() {
         bar_color="$FG_RED"
     fi
     
-    local bar_len=$(( (lat_int * max_bar_width) / 200 ))
-    (( bar_len > max_bar_width )) && bar_len=$max_bar_width
-    (( bar_len < 1 )) && bar_len=1
+    # Simple bar - just a few characters based on latency
+    local bar_len=1
+    if (( lat_int > 50 )); then bar_len=2; fi
+    if (( lat_int > 100 )); then bar_len=3; fi
     
     local bar; bar=$(printf "%${bar_len}s" | tr ' ' "$bar_char")
-    printf "%s%-*s%s" "$bar_color" "$max_bar_width" "$bar" "$RESET"
+    printf " %s%s%s" "$bar_color" "$bar" "$RESET"
 }
 
 animated_bar(){
@@ -136,54 +315,94 @@ animated_bar(){
         local empty=$(( width - filled ))
         local spinner_char=${spinner_chars:f%${#spinner_chars}:1}
         
-        printf "\r│   ${FG_CYAN}%s${RESET} %-10s [%s%s] %3d/%-3d" \
-            "$spinner_char" "$label" \
+        printf "\r%*s│   ${FG_CYAN}%s${RESET} %-10s [%s%s] %3d/%-3d" \
+            "$CENTER_OFFSET" "" "$spinner_char" "$label" \
             "${FG_GREEN}$(printf "%${filled}s" | tr ' ' "$progress_char")${RESET}" \
             "$(printf "%${empty}s" | tr ' ' "$remaining_char")" \
             "$steps_done" "$total_steps"
         sleep $sleep_interval
     done
     
-    printf "\r│   ${FG_GREEN}✔${RESET} %-10s [%s] %3d/%-3d\n" \
-        "$label" "$(printf "%${width}s" | tr ' ' "$progress_char")" \
+    printf "\r%*s│   ${FG_GREEN}✔${RESET} %-10s [%s] %3d/%-3d\n" \
+        "$CENTER_OFFSET" "" "$label" "$(printf "%${width}s" | tr ' ' "$progress_char")" \
         "$total_steps" "$total_steps"
 }
 
-# --- Core Logic ---
-ensure_dependencies() {
-    if ! command -v brew >/dev/null 2>&1; then
-        echo "${BOLD}${FG_YELLOW}Homebrew not found. Starting official installer...${RESET}"
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# --- Progress Bar Style Display Function ---
+display_progress_bars() {
+    if [[ ! -s "$TOP_3_RESULTS" ]]; then
+        center_printf "  ${FG_RED}No reachable DNS servers were found during the test.${RESET}"
+        return
     fi
     
-    # Add Homebrew to PATH
-    if [[ -x "/opt/homebrew/bin/brew" ]]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
-    elif [[ -x "/usr/local/bin/brew" ]]; then
-        eval "$(/usr/local/bin/brew shellenv)"
-    elif [[ -d "$HOME/.linuxbrew" ]]; then
-        eval "$($HOME/.linuxbrew/bin/brew shellenv)"
-    elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
-        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-    fi
+    # Progress bar visualization
+    printf "\n"
+    center_printf "${FG_CYAN}${BOLD}📊 DNS PERFORMANCE COMPARISON 📊${RESET}"
+    printf "\n"
+    center_printf "${FG_BRIGHT_WHITE}Longer bars = Better performance (lower latency)${RESET}"
+    printf "\n\n"
     
-    if ! command -v brew >/dev/null 2>&1; then
-        echo "${FG_RED}Homebrew installation failed. Continuing with reduced visuals.${RESET}"
-        return 0
-    fi
+    # Find max latency for scaling
+    local max_lat latencies=()
+    while IFS=',' read -r _ _ _ lat; do
+        latencies+=("$lat")
+    done < "$TOP_3_RESULTS"
     
-    local missing_packages=()
-    for pkg in neofetch figlet lolcat; do
-        ! command -v "$pkg" >/dev/null 2>&1 && missing_packages+=("$pkg")
-    done
+    # Calculate max latency
+    max_lat=$(printf '%s\n' "${latencies[@]}" | sort -n | tail -1)
+    max_lat_int=${max_lat%.*}
     
-    if (( ${#missing_packages[@]} > 0 )); then
-        echo "${BOLD}${FG_YELLOW}Installing missing dependencies (${missing_packages[*]}) via Homebrew...${RESET}"
-        brew update >/dev/null 2>&1 || true
-        if ! brew install "${missing_packages[@]}" >/dev/null 2>&1; then
-            echo "${FG_RED}Failed to install dependencies. Continuing with reduced visuals.${RESET}"
+    local rank=1
+    while IFS=',' read -r PNAME PIP PLOSS PLAT; do
+        local medal color
+        case $rank in
+            1) medal="🥇" color="$FG_YELLOW" ;;
+            2) medal="🥈" color="$FG_WHITE" ;;
+            3) medal="🥉" color="$FG_BROWN" ;;
+        esac
+        
+        # Calculate bar length (inverse - shorter latency = longer bar)
+        local lat_int=${PLAT%.*}
+        local bar_len=$(( 50 - (lat_int * 35 / max_lat_int) ))
+        [[ $bar_len -lt 10 ]] && bar_len=10
+        [[ $bar_len -gt 45 ]] && bar_len=45
+        
+        local bar; bar=$(printf "%${bar_len}s" | tr ' ' '█')
+        
+        # Performance rating based on latency
+        local rating
+        if (( lat_int < 25 )); then 
+            rating="${FG_GREEN}${BOLD}BLAZING FAST${RESET}"
+        elif (( lat_int < 40 )); then 
+            rating="${FG_YELLOW}${BOLD}VERY FAST${RESET}"
+        elif (( lat_int < 60 )); then 
+            rating="${FG_ORANGE}${BOLD}FAST${RESET}"
+        else 
+            rating="${FG_RED}${BOLD}GOOD${RESET}"
         fi
+        
+        center_printf "%s ${BOLD}%-12s${RESET} %s%s%s ${FG_GREEN}%6sms${RESET} %s" \
+            "$medal" "$PNAME" "$color" "$bar" "$RESET" "$PLAT" "$rating"
+        
+        # Add IP address info underneath with better visibility
+        center_printf "    ${FG_CYAN}%s${RESET} - ${FG_WHITE}%s${RESET}" "$PIP" "$(provider_tags "$PNAME")"
+        printf "\n"
+        
+        ((rank++))
+    done < "$TOP_3_RESULTS"
+    
+    # Winner celebration
+    local winner_line first_name first_ip first_lat
+    winner_line=$(head -n 1 "$TOP_3_RESULTS")
+    if [[ -n "$winner_line" ]]; then
+        IFS=',' read -r first_name first_ip _ first_lat <<<"$winner_line"
+        command -v tput >/dev/null 2>&1 && tput flash
+        center_printf "⚡ ${FG_YELLOW}${BOLD}SPEED CHAMPION: %s leads with %sms response time!${RESET} ⚡" "$first_name" "$first_lat"
+        center_printf "${FG_GREEN}🏆 Optimal DNS performance achieved! 🏆${RESET}"
+        printf "\a"
     fi
+    
+    printf "\n"
 }
 
 ping_host(){
@@ -241,14 +460,15 @@ provider_tags(){
 print_header "System & Dependencies Check" "$FG_MAGENTA"
 ensure_dependencies
 
-# Display system info
+# Show system info (neofetch already centers itself)
+printf "\n"
 if command -v neofetch >/dev/null 2>&1; then
     neofetch
 fi
 
 # Display custom banner for the benchmark
 if command -v figlet >/dev/null 2>&1 && command -v lolcat >/dev/null 2>&1; then
-    figlet -c -w "${COLUMNS:-96}" -f slant "DNS BENCHMARK" | lolcat
+    figlet -c -w "${TERMINAL_COLS}" -f slant "DNS BENCHMARK" | lolcat
 else
     print_double_line_header "🚀 DNS BENCHMARK 🚀" "$FG_CYAN"
 fi
@@ -287,11 +507,11 @@ for entry in "${DNS_SERVERS[@]}"; do
     avg1=$(parse_avg "$out1")
     
     if [[ -n "${avg1:-}" && "${loss1:-100}" != "100" ]]; then
-        box_printf "    %-9s ${FG_GREEN}✔ OK${RESET}   avg=%-7sms loss=%-3s%% %s ${DIM}(%s)${RESET}" \
+        box_printf "    %-9s ${FG_GREEN}✔ OK${RESET}   avg=%-7sms loss=%-3s%% %s ${FG_WHITE}(%s)${RESET}" \
             "Primary" "$avg1" "${loss1:-0}" "$(generate_latency_bar "$avg1")" "$ip1"
         echo "$provider,$ip1,${loss1:-0},$avg1" >> "$TMP_RESULTS"
     else
-        box_printf "    %-9s ${FG_RED}✖ UNREACHABLE${RESET}   loss=%-3s%% ${DIM}(%s)${RESET}" \
+        box_printf "    %-9s ${FG_RED}✖ UNREACHABLE${RESET}   loss=%-3s%% ${FG_WHITE}(%s)${RESET}" \
             "Primary" "${loss1:-100}" "$ip1"
     fi
     
@@ -309,11 +529,11 @@ for entry in "${DNS_SERVERS[@]}"; do
     avg2=$(parse_avg "$out2")
     
     if [[ -n "${avg2:-}" && "${loss2:-100}" != "100" ]]; then
-        box_printf "    %-9s ${FG_GREEN}✔ OK${RESET}   avg=%-7sms loss=%-3s%% %s ${DIM}(%s)${RESET}" \
+        box_printf "    %-9s ${FG_GREEN}✔ OK${RESET}   avg=%-7sms loss=%-3s%% %s ${FG_WHITE}(%s)${RESET}" \
             "Secondary" "$avg2" "${loss2:-0}" "$(generate_latency_bar "$avg2")" "$ip2"
         echo "$provider,$ip2,${loss2:-0},$avg2" >> "$TMP_RESULTS"
     else
-        box_printf "    %-9s ${FG_RED}✖ UNREACHABLE${RESET}   loss=%-3s%% ${DIM}(%s)${RESET}" \
+        box_printf "    %-9s ${FG_RED}✖ UNREACHABLE${RESET}   loss=%-3s%% ${FG_WHITE}(%s)${RESET}" \
             "Secondary" "${loss2:-100}" "$ip2"
     fi
     box_print_blank
@@ -327,73 +547,12 @@ sort -t',' -k4,4n "$CLEAN_RESULTS" | head -n 3 > "$TOP_3_RESULTS"
 
 # Display styled header for the results
 if command -v figlet >/dev/null 2>&1 && command -v lolcat >/dev/null 2>&1; then
-    figlet -c -w "${COLUMNS:-96}" -f slant "TOP 3 RESULTS" | lolcat
+    figlet -c -w "${TERMINAL_COLS}" -f slant "TOP 3 RESULTS" | lolcat
 else
     print_double_line_header "🏆 TOP 3 RESULTS 🏆" "$FG_GREEN"
 fi
 
-if [[ ! -s "$TOP_3_RESULTS" ]]; then
-    printf "  ${FG_RED}No reachable DNS servers were found during the test.${RESET}\n"
-else
-    # Table structure
-    T_TOP="╔═══════════════════╦═════════════════════╦══════════════════════════╦══════════════════════════════════════════╗"
-    T_HEADER_SEP="╠═══════════════════╬═════════════════════╬══════════════════════════╬══════════════════════════════════════════╣"
-    T_ROW_SEP="╟───────────────────╫─────────────────────╫──────────────────────────╫──────────────────────────────────────────╢"
-    T_BOT="╚═══════════════════╩═════════════════════╩══════════════════════════╩══════════════════════════════════════════╝"
-    
-    # Print table header
-    echo "$T_TOP"
-    printf "║ ${BOLD}%-19s${RESET} ║ ${BOLD}%-19s${RESET} ║ ${BOLD}%-26s${RESET} ║ ${BOLD}%-42s${RESET} ║\n" \
-        "🏆 Provider" "IP Address" "Latency (ms & Bar)" "Features"
-    echo "$T_HEADER_SEP"
-    
-    rank=1
-    total_rows=$(wc -l < "$TOP_3_RESULTS")
-    while IFS=',' read -r PNAME PIP PLOSS PLAT; do
-        TAGS="$(provider_tags "$PNAME")"
-        LAT_BAR="$(generate_latency_bar "$PLAT")"
-        
-        # Color the latency text based on value
-        lat_int=${PLAT%.*}
-        lat_color=""
-        if (( lat_int < 30 )); then 
-            lat_color="$FG_GREEN"
-        elif (( lat_int < 80 )); then 
-            lat_color="$FG_YELLOW"
-        else 
-            lat_color="$FG_RED"
-        fi
-        
-        LAT_TEXT_PADDED=$(printf "%7s" "${PLAT}ms")
-        LAT_TEXT_COLORED=$(printf "%s%s%s" "$lat_color" "$LAT_TEXT_PADDED" "$RESET")
-        LAT_FORMATTED=$(printf "%s %s" "$LAT_TEXT_COLORED" "$LAT_BAR")
-        
-        # Determine the prefix for the provider name
-        PNAME_PREFIX=""
-        if (( rank == 1 )); then
-            PNAME_PREFIX="🏆 "
-        else
-            PNAME_PREFIX="  "
-        fi
-        
-        printf "║ %s%-17s ║ %-19s ║ %s ║ ${FG_YELLOW}%-42s${RESET} ║\n" \
-            "$PNAME_PREFIX" "$PNAME" "$PIP" "$LAT_FORMATTED" "$TAGS"
-        
-        # Print row separator if it's not the last row
-        (( rank < total_rows )) && echo "$T_ROW_SEP"
-        
-        ((rank++))
-    done < "$TOP_3_RESULTS"
-    echo "$T_BOT"
-    
-    # Display winner
-    winner_line=$(head -n 1 "$TOP_3_RESULTS")
-    if [[ -n "$winner_line" ]]; then
-        IFS=',' read -r W_PNAME W_PIP W_PLOSS W_PLAT <<<"$winner_line"
-        command -v tput >/dev/null 2>&1 && tput flash
-        print_double_line_header "🏆 Winner: ${W_PNAME} (${W_PIP}) at ${W_PLAT}ms 🏆" "$FG_GREEN"
-        printf "\a"
-    fi
-fi
+# Display the progress bar results
+display_progress_bars
 
-echo
+printf "\n"
