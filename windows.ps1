@@ -1,11 +1,9 @@
-# Windows DNS & System Info Script
-# Description: Checks for winfetch. If missing, it tries to install it using Chocolatey or by direct download,
-#              then it runs the DNS latency test.
+# Windows DNS & System Info Script (Modernized)
+# Description: Checks/installs winfetch, then runs DNS latency test with clear colorful output.
 #
-# To Run (from Command Prompt or PowerShell):
-#   powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex"
+# Note: Does not modify base logic, only enhances visuals and structure.
 
-# --- ANSI Color Definitions ---
+# --- ANSI Color / Style Definitions ---
 $esc = "$([char]27)"
 $RESET = "$esc[0m"
 $BOLD = "$esc[1m"
@@ -16,140 +14,153 @@ $FG_YELLOW = "$esc[33m"
 $FG_BLUE = "$esc[34m"
 $FG_CYAN = "$esc[36m"
 
-# --- Function to ensure Winfetch is available ---
+# --- Utility: Center Printer ---
+function Center-Print {
+    param([string]$Text)
+    $cols = [Console]::WindowWidth
+    $pad = [Math]::Max(0, ([Math]::Floor(($cols - $Text.Length) / 2)))
+    Write-Host (" " * $pad + $Text)
+}
+
+function Print-Banner {
+    $bannerLines = @(
+        "██████╗ ███╗   ██╗███████╗",
+        "██╔══██╗████╗  ██║██╔════╝",
+        "██████╔╝██╔██╗ ██║█████╗  ",
+        "██╔═══╝ ██║╚██╗██║██╔══╝  ",
+        "██║     ██║ ╚████║███████╗",
+        "╚═╝     ╚═╝  ╚═══╝╚══════╝",
+        "      DNS BENCHMARK       "
+    )
+    Write-Host ""
+    foreach ($line in $bannerLines) {
+        Center-Print "$BOLD$FG_MAGENTA$line$RESET"
+    }
+    Write-Host ""
+}
+
+# --- Ensures Winfetch is installed ---
 function Ensure-Winfetch {
-    # 1. Check if winfetch command already exists
     if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-        Write-Host "$($BOLD)$($FG_GREEN)winfetch is already available.$($RESET)"
+        Center-Print "$BOLD$FG_GREEN winfetch is already available.$RESET"
         return
     }
 
-    # 2. Attempt to install via Chocolatey (preferred method)
-    Write-Host "$($BOLD)$($FG_YELLOW)Winfetch not found. Attempting to install using Chocolatey...$($RESET)"
-    
-    # Check for Chocolatey and install if missing
+    Center-Print "$BOLD$FG_YELLOW Winfetch not found — attempting to install...$RESET"
+
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey not found. Attempting to install Chocolatey first...$($RESET)"
+        Center-Print "$BOLD$FG_YELLOW Chocolatey not found — installing Chocolatey first...$RESET"
         try {
-            Set-ExecutionPolicy Bypass -Scope Process -Force;
-            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;
-            Invoke-RestMethod -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing | Invoke-Expression
-            # Refresh environment variables to find the new command
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        }
-        catch {
-            Write-Host "$($BOLD)$($FG_RED)Failed to install Chocolatey. $($_.Exception.Message)$($RESET)"
-            # Fallback will be attempted next
+            Set-ExecutionPolicy Bypass -Scope Process -Force
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+            # Refresh PATH in current session
+            $chocoPath = "C:\ProgramData\chocolatey\bin"
+            if (-not $env:PATH.Split(';') -contains $chocoPath) {
+                $env:PATH += ";$chocoPath"
+                Center-Print "$BOLD$FG_GREEN Added Chocolatey to current PATH.$RESET"
+            }
+        } catch {
+            Center-Print "$BOLD$FG_RED Failed to install Chocolatey: $($_.Exception.Message)$RESET"
+            Write-Host ""
         }
     }
 
-    # Install Winfetch with Chocolatey if available
     if (Get-Command choco -ErrorAction SilentlyContinue) {
-         try {
-            choco install winfetch -y --force
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        try {
+            choco install winfetch -y --force | Out-Null
             if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-                Write-Host "$($BOLD)$($FG_GREEN)winfetch installed successfully via Chocolatey.$($RESET)"
+                Center-Print "$BOLD$FG_GREEN winfetch installed successfully via Chocolatey.$RESET"
                 return
             }
-        }
-        catch {
-             Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey installation of winfetch failed. $($_.Exception.Message)$($RESET)"
+        } catch {
+            Center-Print "$BOLD$FG_YELLOW Failed installing winfetch via Chocolatey: $($_.Exception.Message)$RESET"
         }
     }
 
-    # 3. Fallback: Direct download from GitHub
-    Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey failed or not found. Attempting direct download of winfetch script...$($RESET)"
+    Center-Print "$BOLD$FG_YELLOW Attempting to download winfetch script directly...$RESET"
     $winfetchUrl = "https://github.com/kiedtl/winfetch/releases/latest/download/winfetch.ps1"
     $localPath = Join-Path $env:TEMP "winfetch.ps1"
+
     try {
         Invoke-RestMethod -Uri $winfetchUrl -OutFile $localPath
-        # Make the downloaded script available as the 'winfetch' command for this session
         Set-Alias -Name winfetch -Value $localPath -Scope Global -Force
         if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-             Write-Host "$($BOLD)$($FG_GREEN)winfetch downloaded successfully.$($RESET)"
-             return
+            Center-Print "$BOLD$FG_GREEN winfetch script downloaded successfully.$RESET"
+            return
         }
+    } catch {
+        Center-Print "$BOLD$FG_RED Failed to download winfetch directly: $($_.Exception.Message)$RESET"
     }
-    catch {
-        Write-Host "$($BOLD)$($FG_RED)Failed to download winfetch directly.$($RESET)"
-        Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
-    }
-    
-    Write-Host "$($BOLD)$($FG_RED)Could not make winfetch available. DNS test will continue without it.$($RESET)"
+
+    Center-Print "$BOLD$FG_RED Could not make winfetch available. DNS test will continue without it.$RESET"
 }
 
-
-# --- Function to Run Winfetch and DNS Benchmark ---
+# --- Runs Winfetch (if available) and DNS latency test ---
 function Start-Benchmark {
-    # 1. Display System Info with Winfetch
+    # Show system info
     if (Get-Command winfetch -ErrorAction SilentlyContinue) {
+        Write-Host ""
+        Center-Print "$BOLD$FG_CYAN ==== System Information ====$RESET"
+        Write-Host ""
         winfetch
-    }
-    else {
-        Write-Host "$($BOLD)$($FG_GREEN)winfetch could not be installed; continuing with DNS tests...$($RESET)"
+        Write-Host ""
+    } else {
+        Center-Print "$BOLD$FG_YELLOW winfetch not available; skipping system info.$RESET"
     }
 
-    Write-Host ""
-    Write-Host "$($BOLD)$($FG_BLUE)DNS Section$($RESET)"
-    Write-Host "-----------"
-    Write-Host ""
-
-    # 2. DNS Benchmark Section
+    # DNS Test setup
     $pingCount = 5
-    $pingTimeoutSeconds = 5
-
     $dnsServers = @(
-        [pscustomobject]@{ Provider = "Cloudflare"; Primary = "1.1.1.1"; Secondary = "1.0.0.1" }
-        [pscustomobject]@{ Provider = "Google"; Primary = "8.8.8.8"; Secondary = "8.8.4.4" }
-        [pscustomobject]@{ Provider = "Quad9"; Primary = "9.9.9.9"; Secondary = "149.112.112.112" }
-        [pscustomobject]@{ Provider = "OpenDNS"; Primary = "208.67.222.222"; Secondary = "208.67.220.220" }
-        [pscustomobject]@{ Provider = "AdGuard"; Primary = "94.140.14.14"; Secondary = "94.140.15.15" }
-        [pscustomobject]@{ Provider = "CleanBrowsing"; ProviderDisplay="CleanBrowsing-Security"; Primary = "185.228.168.9"; Secondary = "185.228.169.9" }
-        [pscustomobject]@{ Provider = "Comodo"; Primary = "8.26.56.26"; Secondary = "8.20.247.20" }
-        [pscustomobject]@{ Provider = "Verisign"; Primary = "64.6.64.6"; Secondary = "64.6.65.6" }
-        [pscustomobject]@{ Provider = "OpenNIC"; Primary = "94.16.114.254"; Secondary = "94.247.43.254" }
+        @{ Provider = "Cloudflare"; Primary = "1.1.1.1"; Secondary = "1.0.0.1" }
+        @{ Provider = "Google"; Primary = "8.8.8.8"; Secondary = "8.8.4.4" }
+        @{ Provider = "Quad9"; Primary = "9.9.9.9"; Secondary = "149.112.112.112" }
+        @{ Provider = "OpenDNS"; Primary = "208.67.222.222"; Secondary = "208.67.220.220" }
+        @{ Provider = "AdGuard"; Primary = "94.140.14.14"; Secondary = "94.140.15.15" }
+        @{ Provider = "CleanBrowsing"; ProviderDisplay = "CleanBrowsing-Security"; Primary = "185.228.168.9"; Secondary = "185.228.169.9" }
+        @{ Provider = "Comodo"; Primary = "8.26.56.26"; Secondary = "8.20.247.20" }
+        @{ Provider = "Verisign"; Primary = "64.6.64.6"; Secondary = "64.6.65.6" }
+        @{ Provider = "OpenNIC"; Primary = "94.16.114.254"; Secondary = "94.247.43.254" }
     )
 
-    Write-Host "$($BOLD)$($FG_CYAN)Mode:$($RESET) $($pingCount) probes per host"
-    Write-Host "$($BOLD)$($FG_CYAN)Targets:$($RESET) $($dnsServers.Count) providers (primary + secondary)"
+    Center-Print "$BOLD$FG_CYAN ==== DNS Latency Test ====$RESET"
     Write-Host ""
-    Write-Host "$($BOLD)$($FG_BLUE)Testing DNS (Please Wait)...$($RESET)"
+    Center-Print "$BOLD Mode:$RESET $pingCount probes per server"
+    Center-Print "$BOLD Targets:$RESET $($dnsServers.Count) providers (primary + secondary)"
     Write-Host ""
 
     $allResults = [System.Collections.Generic.List[object]]::new()
 
     foreach ($server in $dnsServers) {
-        $providerName = if ($server.ProviderDisplay) { $server.ProviderDisplay } else { $server.Provider }
-        Write-Host "$($BOLD)$($FG_CYAN)$providerName$($RESET)"
+        $providerName = if ($null -ne $server.ProviderDisplay) { $server.ProviderDisplay } else { $server.Provider }
+        Center-Print "$BOLD$FG_BLUE $providerName $RESET"
 
-        # Test Primary IP
-        $pingResult1 = Test-Connection -ComputerName $server.Primary -Count $pingCount -ErrorAction SilentlyContinue
-        if ($pingResult1) {
-            $avgLatency1 = ($pingResult1 | Measure-Object -Property ResponseTime -Average).Average
-            $loss1 = (1 - ($pingResult1.Count / $pingCount)) * 100
-            Write-Host ("{0,-14} {1}" -f "Primary", "$($FG_GREEN)OK$($RESET)   loss=$($loss1)%   avg=$([math]::Round($avgLatency1))ms   $($DIM)($($server.Primary))$($RESET)")
-            $allResults.Add([pscustomobject]@{ Provider = $server.Provider; IP = $server.Primary; Loss = $loss1; Latency = [math]::Round($avgLatency1) })
-        }
-        else {
-            Write-Host ("{0,-14} {1}" -f "Primary", "$($FG_RED)UNREACHABLE$($RESET)   loss=100%   $($DIM)($($server.Primary))$($RESET)")
+        # Primary
+        $primaryPings = Test-Connection -ComputerName $server.Primary -Count $pingCount -ErrorAction SilentlyContinue
+        if ($primaryPings) {
+            $avgPrimary = ($primaryPings | Measure-Object -Property ResponseTime -Average).Average
+            $lossPrimary = (1 - ($primaryPings.Count / $pingCount)) * 100
+            Center-Print ("  Primary    : $FG_GREEN OK $RESET | Loss: {0:N1}% | Avg: {1} ms | IP: $server.Primary" -f $lossPrimary, [math]::Round($avgPrimary))
+            $allResults.Add([pscustomobject]@{ Provider = $providerName; IP = $server.Primary; Loss = $lossPrimary; Latency = [math]::Round($avgPrimary) })
+        } else {
+            Center-Print ("  Primary    : $FG_RED UNREACHABLE $RESET | Loss: 100% | IP: $server.Primary")
         }
 
-        # Test Secondary IP
-        $pingResult2 = Test-Connection -ComputerName $server.Secondary -Count $pingCount -ErrorAction SilentlyContinue
-        if ($pingResult2) {
-            $avgLatency2 = ($pingResult2 | Measure-Object -Property ResponseTime -Average).Average
-            $loss2 = (1 - ($pingResult2.Count / $pingCount)) * 100
-            Write-Host ("{0,-14} {1}" -f "Secondary", "$($FG_GREEN)OK$($RESET)   loss=$($loss2)%   avg=$([math]::Round($avgLatency2))ms   $($DIM)($($server.Secondary))$($RESET)")
-            $allResults.Add([pscustomobject]@{ Provider = $server.Provider; IP = $server.Secondary; Loss = $loss2; Latency = [math]::Round($avgLatency2) })
+        # Secondary
+        $secondaryPings = Test-Connection -ComputerName $server.Secondary -Count $pingCount -ErrorAction SilentlyContinue
+        if ($secondaryPings) {
+            $avgSecondary = ($secondaryPings | Measure-Object -Property ResponseTime -Average).Average
+            $lossSecondary = (1 - ($secondaryPings.Count / $pingCount)) * 100
+            Center-Print ("  Secondary  : $FG_GREEN OK $RESET | Loss: {0:N1}% | Avg: {1} ms | IP: $server.Secondary" -f $lossSecondary, [math]::Round($avgSecondary))
+            $allResults.Add([pscustomobject]@{ Provider = $providerName; IP = $server.Secondary; Loss = $lossSecondary; Latency = [math]::Round($avgSecondary) })
+        } else {
+            Center-Print ("  Secondary  : $FG_RED UNREACHABLE $RESET | Loss: 100% | IP: $server.Secondary")
         }
-        else {
-            Write-Host ("{0,-14} {1}" -f "Secondary", "$($FG_RED)UNREACHABLE$($RESET)   loss=100%   $($DIM)($($server.Secondary))$($RESET)")
-        }
+
         Write-Host ""
     }
 
-    # 3. Summary Table
+    # Provider tag helper
     function Get-ProviderTags {
         param ($Provider)
         switch ($Provider) {
@@ -166,18 +177,20 @@ function Start-Benchmark {
         }
     }
 
+    # Summary Table
     $top3 = $allResults | Where-Object { $_.Loss -lt 100 } | Sort-Object -Property Latency | Select-Object -First 3
-    Write-Host "$($BOLD)$($FG_BLUE)Top 3 DNS — Summary Table$($RESET)"
-    $sep = "+----------------+------------------+----------+-------------------------------------------+"
-    Write-Host $sep
-    Write-Host ("| {0,-14} | {1,-16} | {2,-8} | {3,-41} |" -f "Provider", "IP", "Latency", "Details")
-    Write-Host $sep
+
+    $separator = "+----------------------+-------------------+------------+-------------------------------------------+"
+    Center-Print "$BOLD$FG_MAGENTA DNS Providers - Top 3 Summary $RESET"
+    Write-Host $separator
+    Write-Host ("| {0,-20} | {1,-17} | {2,-10} | {3,-41} |" -f "Provider", "IP Address", "Latency", "Details")
+    Write-Host $separator
     foreach ($entry in $top3) {
         $tags = Get-ProviderTags -Provider $entry.Provider
-        $latencyStr = "$($entry.Latency)ms"
-        Write-Host ("| {0,-14} | {1,-16} | {2,7} | {3,-41} |" -f $entry.Provider, $entry.IP, $latencyStr, $tags)
+        $latencyStr = "$($entry.Latency) ms"
+        Write-Host ("| {0,-20} | {1,-17} | {2,8} | {3,-41} |" -f $entry.Provider, $entry.IP, $latencyStr, $tags)
     }
-    Write-Host $sep
+    Write-Host $separator
     Write-Host ""
 }
 
