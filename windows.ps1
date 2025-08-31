@@ -1,226 +1,568 @@
-# Windows DNS & System Info Script
-# Description: Checks for winfetch. If missing, it tries to install it using Chocolatey or by direct download,
-#              then it runs the DNS latency test.
+#!/usr/bin/env pwsh
 #
-# To Run (from Command Prompt or PowerShell):
-#   powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/F3aarLeSS/DNSTest/refs/heads/main/windows.ps1 | iex"
+# Windows_DNS_Benchmark.ps1
+#
+# A PowerShell script to install Chocolatey & dependencies (if missing), then run a latency
+# test against popular DNS servers and display a summary of the top 3.
 
-# --- ANSI Color Definitions ---
-$esc = "$([char]27)"
-$RESET = "$esc[0m"
-$BOLD = "$esc[1m"
-$DIM = "$esc[2m"
-$FG_RED = "$esc[31m"
-$FG_GREEN = "$esc[32m"
-$FG_YELLOW = "$esc[33m"
-$FG_BLUE = "$esc[34m"
-$FG_CYAN = "$esc[36m"
+# --- Strict Mode & Environment Setup ---
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
-# --- Function to ensure Winfetch is available ---
-function Ensure-Winfetch {
-    # 1. Check if winfetch command already exists
-    if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-        Write-Host "$($BOLD)$($FG_GREEN)winfetch is already available.$($RESET)"
+# --- ANSI Escape Codes for Styling ---
+$script:RESET = "`e[0m"
+$script:BOLD = "`e[1m"
+$script:DIM = "`e[2m"
+$script:FG_RED = "`e[31m"
+$script:FG_GREEN = "`e[32m"
+$script:FG_YELLOW = "`e[33m"
+$script:FG_BLUE = "`e[34m"
+$script:FG_MAGENTA = "`e[35m"
+$script:FG_CYAN = "`e[36m"
+$script:FG_WHITE = "`e[37m"
+$script:FG_GRAY = "`e[90m"
+$script:FG_BROWN = "`e[38;5;130m"
+$script:FG_ORANGE = "`e[38;5;214m"
+$script:FG_BRIGHT_WHITE = "`e[97m"
+
+# --- Global Variables & Cleanup ---
+$script:TERMINAL_COLS = [Console]::WindowWidth
+$script:BOX_WIDTH = 96
+$script:CENTER_OFFSET = [Math]::Max(0, [Math]::Floor(($TERMINAL_COLS - $BOX_WIDTH) / 2))
+
+# Create secure temporary files for results
+$script:TMP_RESULTS = [System.IO.Path]::GetTempFileName()
+$script:CLEAN_RESULTS = [System.IO.Path]::GetTempFileName()
+$script:TOP_3_RESULTS = [System.IO.Path]::GetTempFileName()
+
+# Cleanup function
+function Cleanup {
+    Write-Host "$RESET" -NoNewline
+    Remove-Item -Path $TMP_RESULTS, $CLEAN_RESULTS, $TOP_3_RESULTS -Force -ErrorAction SilentlyContinue
+}
+
+# Register cleanup for script exit
+Register-EngineEvent PowerShell.Exiting -Action { Cleanup }
+
+# --- Centering Helper Functions ---
+function Center-Print {
+    param([string]$Content)
+    Write-Host (" " * $CENTER_OFFSET + $Content)
+}
+
+function Center-Printf {
+    param([string]$Format, [object[]]$Args)
+    $content = $Format -f $Args
+    Center-Print $content
+}
+
+# --- Installation Banner Functions ---
+function Show-InstallationBanner {
+    param(
+        [string]$Title,
+        [string]$Subtitle = ""
+    )
+    
+    Write-Host ""
+    Center-Printf "$BOLD$FG_CYAN╔══════════════════════════════════════════════════════════════════════════════╗"
+    Center-Printf "$BOLD$FG_CYAN║                                                                              ║"
+    Center-Printf "$BOLD$FG_CYAN║                            🚀 DNS BENCHMARK SETUP 🚀                         ║"
+    Center-Printf "$BOLD$FG_CYAN║                                                                              ║"
+    Center-Printf "$BOLD$FG_CYAN╠══════════════════════════════════════════════════════════════════════════════╣"
+    Center-Printf "$BOLD$FG_CYAN║                                                                              ║"
+    Center-Printf "$BOLD$FG_CYAN║  %-74s  ║$RESET" $Title
+    if ($Subtitle) {
+        Center-Printf "$BOLD$FG_CYAN║  %-74s  ║$RESET" $Subtitle
+    }
+    Center-Printf "$BOLD$FG_CYAN║                                                                              ║"
+    Center-Printf "$BOLD$FG_CYAN╚══════════════════════════════════════════════════════════════════════════════╝$RESET"
+    Write-Host ""
+}
+
+function Simple-Spinner {
+    param(
+        [string]$Message,
+        [scriptblock]$Action
+    )
+    
+    $spinnerChars = @("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    $i = 0
+    $job = Start-Job -ScriptBlock $Action
+    
+    while ($job.State -eq "Running") {
+        $spinnerChar = $spinnerChars[$i % $spinnerChars.Length]
+        Write-Host ("`r" + " " * $CENTER_OFFSET + "$FG_YELLOW$spinnerChar$RESET $Message...") -NoNewline
+        Start-Sleep -Milliseconds 200
+        $i++
+    }
+    
+    $result = Receive-Job -Job $job -Wait
+    $exitCode = $job.State -eq "Completed"
+    Remove-Job -Job $job
+    
+    if ($exitCode) {
+        Write-Host ("`r" + " " * $CENTER_OFFSET + "$FG_GREEN✔$RESET $Message... ${FG_GREEN}Complete!$RESET")
+    } else {
+        Write-Host ("`r" + " " * $CENTER_OFFSET + "$FG_RED✖$RESET $Message... ${FG_RED}Failed!$RESET")
+    }
+    
+    return $exitCode
+}
+
+# --- Core Logic ---
+function Ensure-Dependencies {
+    # Check if Chocolatey is installed
+    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Show-InstallationBanner "Installing Chocolatey Package Manager" "This may take a few minutes and require administrator privileges..."
+        
+        Center-Printf "$FG_YELLOW🍫 Starting Chocolatey installation...$RESET"
+        Center-Printf "$FG_BLUE   You may be prompted for administrator privileges.$RESET"
+        Write-Host ""
+        
+        # Install Chocolatey
+        try {
+            Set-ExecutionPolicy Bypass -Scope Process -Force
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+            # Refresh environment path after installation
+            $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [Environment]::GetEnvironmentVariable("PATH", "User")
+        } catch {
+            Write-Host ""
+            Center-Printf "$FG_RED❌ Chocolatey installation failed. Continuing with basic visuals.$RESET"
+            Start-Sleep 2
+            return
+        }
+        
+        Write-Host ""
+        Center-Printf "$FG_GREEN🎉 Chocolatey installation completed successfully!$RESET"
+        Start-Sleep 1
+    }
+    
+    # Verify Chocolatey is now available
+    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host ""
+        Center-Printf "$FG_RED❌ Chocolatey installation failed. Continuing with basic visuals.$RESET"
+        Start-Sleep 2
         return
     }
-
-    # 2. Attempt to install via Chocolatey (preferred method)
-    Write-Host "$($BOLD)$($FG_YELLOW)Winfetch not found. Attempting to install using Chocolatey...$($RESET)"
     
-    # Check for Chocolatey and install if missing
-    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey not found. Attempting to install Chocolatey first...$($RESET)"
-        try {
-            Set-ExecutionPolicy Bypass -Scope Process -Force;
-            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;
-            Invoke-RestMethod -Uri 'https://community.chocolatey.org/install.ps1' -UseBasicParsing | Invoke-Expression
-            # Refresh environment variables to find the new command
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        }
-        catch {
-            Write-Host "$($BOLD)$($FG_RED)Failed to install Chocolatey. $($_.Exception.Message)$($RESET)"
-            # Fallback will be attempted next
+    # Check for missing packages
+    $missingPackages = @()
+    $packages = @("winfetch", "figlet")
+    
+    foreach ($pkg in $packages) {
+        if (-not (Get-Command $pkg -ErrorAction SilentlyContinue)) {
+            $missingPackages += $pkg
         }
     }
-
-    # Install Winfetch with Chocolatey if available
-    if (Get-Command choco -ErrorAction SilentlyContinue) {
-         try {
-            choco install winfetch -y --force
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-                Write-Host "$($BOLD)$($FG_GREEN)winfetch installed successfully via Chocolatey.$($RESET)"
-                return
+    
+    # Install missing packages if any
+    if ($missingPackages.Count -gt 0) {
+        Show-InstallationBanner "Installing Required Dependencies" "Installing: $($missingPackages -join ', ')"
+        
+        Center-Printf "$FG_YELLOW📦 Installing dependencies for enhanced visuals...$RESET"
+        Write-Host ""
+        
+        # Install each package
+        $failedPackages = @()
+        foreach ($pkg in $missingPackages) {
+            Center-Printf "$FG_BLUE📦 Installing $BOLD$pkg$RESET$FG_BLUE...$RESET"
+            
+            $success = Simple-Spinner "Installing $pkg" {
+                try {
+                    choco install $using:pkg -y --no-progress | Out-Null
+                    return $true
+                } catch {
+                    return $false
+                }
             }
+            
+            if (-not $success) {
+                $failedPackages += $pkg
+            }
+            Write-Host ""
         }
-        catch {
-             Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey installation of winfetch failed. $($_.Exception.Message)$($RESET)"
+        
+        # Report results
+        $successfulCount = $missingPackages.Count - $failedPackages.Count
+        if ($successfulCount -gt 0) {
+            Center-Printf "$FG_GREEN🎉 Successfully installed $successfulCount package(s)!$RESET"
         }
-    }
-
-    # 3. Fallback: Direct download from GitHub
-    Write-Host "$($BOLD)$($FG_YELLOW)Chocolatey failed or not found. Attempting direct download of winfetch script...$($RESET)"
-    $winfetchUrl = "https://github.com/kiedtl/winfetch/releases/latest/download/winfetch.ps1"
-    $localPath = Join-Path $env:TEMP "winfetch.ps1"
-    try {
-        Invoke-RestMethod -Uri $winfetchUrl -OutFile $localPath
-        # Make the downloaded script available as the 'winfetch' command for this session
-        Set-Alias -Name winfetch -Value $localPath -Scope Global -Force
-        if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-             Write-Host "$($BOLD)$($FG_GREEN)winfetch downloaded successfully.$($RESET)"
-             return
+        
+        if ($failedPackages.Count -gt 0) {
+            Center-Printf "$FG_YELLOW⚠️  Some packages failed to install: $($failedPackages -join ', ')$RESET"
+            Center-Printf "$FG_YELLOW   Continuing with reduced visuals...$RESET"
+        } else {
+            Center-Printf "$FG_CYAN🌟 Enhanced visuals are now available!$RESET"
         }
+        
+        Start-Sleep 2
     }
-    catch {
-        Write-Host "$($BOLD)$($FG_RED)Failed to download winfetch directly.$($RESET)"
-        Write-Host "$($BOLD)$($FG_RED)Error details: $($_.Exception.Message)$($RESET)"
-    }
-    
-    Write-Host "$($BOLD)$($FG_RED)Could not make winfetch available. DNS test will continue without it.$($RESET)"
 }
 
-# --- Animated Progress Bar Function ---
-function Show-AnimatedBar {
+# --- Visual Helper Functions ---
+function Print-Header {
+    param(
+        [string]$Title,
+        [string]$Color = $FG_BLUE
+    )
+    
+    $titleWithSpaces = " $Title "
+    $padLen = [Math]::Max(0, [Math]::Floor(($BOX_WIDTH - $titleWithSpaces.Length) / 2))
+    $padding = "─" * $padLen
+    $extraChar = if (($titleWithSpaces.Length + $padLen * 2) -lt $BOX_WIDTH) { "─" } else { "" }
+    
+    Write-Host ""
+    Center-Printf "$BOLD$Color$padding$titleWithSpaces$padding$extraChar$RESET"
+    Write-Host ""
+}
+
+function Print-DoubleLineHeader {
+    param(
+        [string]$Title,
+        [string]$Color = $FG_BLUE
+    )
+    
+    $titleWithSpaces = " $Title "
+    $cleanTitle = $titleWithSpaces -replace '\x1b\[[0-9;]*m', ''
+    $titleLen = $cleanTitle.Length
+    
+    Write-Host ""
+    Center-Printf "$BOLD$Color╔$('═' * $titleLen)╗"
+    Center-Printf "$BOLD$Color║$titleWithSpaces║"
+    Center-Printf "$BOLD$Color╚$('═' * $titleLen)╝$RESET"
+    Write-Host ""
+}
+
+# --- Box Drawing Functions ---
+function Box-Print {
+    param([string]$Content)
+    $cleanContent = $Content -replace '\x1b\[[0-9;]*m', ''
+    $contentLen = $cleanContent.Length
+    $padding = [Math]::Max(0, $BOX_WIDTH - 4 - $contentLen)
+    Center-Printf "│ $Content$(' ' * $padding) │"
+}
+
+function Box-Printf {
+    param([string]$Format, [object[]]$Args)
+    $content = $Format -f $Args
+    Box-Print $content
+}
+
+function Print-BoxTop {
+    Center-Printf "╭$('─' * ($BOX_WIDTH - 2))╮"
+}
+
+function Print-BoxSeparator {
+    Center-Printf "├$('─' * ($BOX_WIDTH - 2))┤"
+}
+
+function Print-BoxBottom {
+    Center-Printf "╰$('─' * ($BOX_WIDTH - 2))╯"
+}
+
+function Box-PrintBlank {
+    Center-Printf "│$(' ' * ($BOX_WIDTH - 2))│"
+}
+
+function Box-PrintProviderHeader {
+    param([string]$ProviderName)
+    
+    $providerWithSpaces = " $ProviderName "
+    $totalWidth = $BOX_WIDTH - 4
+    $nameLen = $providerWithSpaces.Length
+    $padLen = [Math]::Max(0, [Math]::Floor(($totalWidth - $nameLen) / 2))
+    $leftPad = "╌" * $padLen
+    $rightPad = $leftPad
+    if (($nameLen + $padLen * 2) -lt $totalWidth) {
+        $rightPad += "╌"
+    }
+    Box-Print "$leftPad$BOLD$FG_YELLOW$providerWithSpaces$RESET$rightPad"
+}
+
+function Generate-LatencyBar {
+    param([string]$LatencyMs)
+    
+    if (-not ($LatencyMs -match '^\d+(\.\d+)?$')) {
+        return ""
+    }
+    
+    $latInt = [int][float]$LatencyMs
+    $barChar = "■"
+    
+    if ($latInt -lt 30) {
+        $barColor = $FG_GREEN
+    } elseif ($latInt -lt 80) {
+        $barColor = $FG_YELLOW
+    } else {
+        $barColor = $FG_RED
+    }
+    
+    $barLen = 1
+    if ($latInt -gt 50) { $barLen = 2 }
+    if ($latInt -gt 100) { $barLen = 3 }
+    
+    $bar = $barChar * $barLen
+    return " $barColor$bar$RESET"
+}
+
+function Animated-Bar {
     param(
         [string]$Label,
-        [int]$DurationSeconds = 5
+        [int]$TotalSteps = 3,
+        [int]$DurationMs = 1000
     )
-    # Suppress error if console window is too small during execution
-    $ErrorActionPreference = 'SilentlyContinue'
-    $width = [math]::Floor(($Host.UI.RawUI.WindowSize.Width - 28))
+    
+    $width = [Math]::Min(80, $BOX_WIDTH) - 32
     if ($width -lt 12) { $width = 12 }
-
-    $totalFrames = $DurationSeconds * 20 # 20 frames per second
-    for ($frame = 0; $frame -le $totalFrames; $frame++) {
-        $percent = $frame / $totalFrames
-        $filled = [math]::Round($width * $percent)
+    
+    $sleepInterval = 30
+    $numFrames = [Math]::Floor($DurationMs / $sleepInterval)
+    $progressChar = "▰"
+    $remainingChar = "-"
+    $spinnerChars = @("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    
+    for ($f = 0; $f -le $numFrames; $f++) {
+        $stepsDone = [Math]::Floor(($f * $TotalSteps) / $numFrames)
+        $filled = [Math]::Min($width, [Math]::Floor(($f * $width) / $numFrames))
         $empty = $width - $filled
+        $spinnerChar = $spinnerChars[$f % $spinnerChars.Length]
         
-        $filledBar = "█" * $filled
-        $emptyBar = " " * $empty
-
-        $progressText = "$($FG_GREEN)$($Label.PadRight(10))$($RESET) [$($FG_GREEN)$filledBar$($RESET)$emptyBar]"
-        Write-Host "`r$progressText" -NoNewline
-        Start-Sleep -Milliseconds 50
+        Write-Host ("`r" + " " * $CENTER_OFFSET + "│   $FG_CYAN$spinnerChar$RESET $Label".PadRight(10) + 
+                   " [$FG_GREEN$($progressChar * $filled)$RESET$($remainingChar * $empty)] $stepsDone/$TotalSteps".PadLeft(8)) -NoNewline
+        Start-Sleep -Milliseconds $sleepInterval
     }
-    $ErrorActionPreference = 'Continue' # Restore error preference
+    
+    Write-Host ("`r" + " " * $CENTER_OFFSET + "│   $FG_GREEN✔$RESET $Label".PadRight(10) + 
+               " [$($progressChar * $width)] $TotalSteps/$TotalSteps".PadLeft(8))
 }
 
-
-# --- Function to Run Winfetch and DNS Benchmark ---
-function Start-Benchmark {
-    # 1. Display System Info with Winfetch
-    if (Get-Command winfetch -ErrorAction SilentlyContinue) {
-        winfetch
+# --- Progress Bar Style Display Function ---
+function Display-ProgressBars {
+    if (-not (Test-Path $TOP_3_RESULTS) -or (Get-Content $TOP_3_RESULTS | Measure-Object).Count -eq 0) {
+        Center-Printf "  $FG_RED No reachable DNS servers were found during the test.$RESET"
+        return
     }
-    else {
-        Write-Host "$($BOLD)$($FG_GREEN)winfetch could not be installed; continuing with DNS tests...$($RESET)"
-    }
-
+    
     Write-Host ""
-    Write-Host "$($BOLD)$($FG_BLUE)DNS Section$($RESET)"
-    Write-Host "-----------"
+    Center-Printf "$FG_CYAN$BOLD📊 DNS PERFORMANCE COMPARISON 📊$RESET"
     Write-Host ""
-
-    # 2. DNS Benchmark Section
-    $pingCount = 4
-    $pingTimeoutSeconds = 2
-
-    $dnsServers = @(
-        [pscustomobject]@{ Provider = "Cloudflare"; Primary = "1.1.1.1"; Secondary = "1.0.0.1" }
-        [pscustomobject]@{ Provider = "Google"; Primary = "8.8.8.8"; Secondary = "8.8.4.4" }
-        [pscustomobject]@{ Provider = "Quad9"; Primary = "9.9.9.9"; Secondary = "149.112.112.112" }
-        [pscustomobject]@{ Provider = "OpenDNS"; Primary = "208.67.222.222"; Secondary = "208.67.220.220" }
-        [pscustomobject]@{ Provider = "AdGuard"; Primary = "94.140.14.14"; Secondary = "94.140.15.15" }
-        [pscustomobject]@{ Provider = "CleanBrowsing"; ProviderDisplay="CleanBrowsing-Security"; Primary = "185.228.168.9"; Secondary = "185.228.169.9" }
-        [pscustomobject]@{ Provider = "Comodo"; Primary = "8.26.56.26"; Secondary = "8.20.247.20" }
-        [pscustomobject]@{ Provider = "Verisign"; Primary = "64.6.64.6"; Secondary = "64.6.65.6" }
-        [pscustomobject]@{ Provider = "OpenNIC"; Primary = "94.16.114.254"; Secondary = "94.247.43.254" }
-    )
-
-    Write-Host "$($BOLD)$($FG_CYAN)Mode:$($RESET) $($pingCount) probes per host"
-    Write-Host "$($BOLD)$($FG_CYAN)Targets:$($RESET) $($dnsServers.Count) providers (primary + secondary)"
+    Center-Printf "$FG_BRIGHT_WHITE Longer bars = Better performance (lower latency)$RESET"
     Write-Host ""
-    Write-Host "$($BOLD)$($FG_BLUE)Testing DNS (Please Wait)...$($RESET)"
     Write-Host ""
-
-    $allResults = [System.Collections.Generic.List[object]]::new()
-
-    foreach ($server in $dnsServers) {
-        $providerName = if ($server.ProviderDisplay) { $server.ProviderDisplay } else { $server.Provider }
-        Write-Host "$($BOLD)$($FG_CYAN)$providerName$($RESET)"
-
-        # Test Primary IP
-        $job1 = Start-Job -ScriptBlock { 
-            param($ip, $count)
-            Test-Connection -ComputerName $ip -Count $count -ErrorAction SilentlyContinue 
-        } -ArgumentList $server.Primary, $pingCount
-        Show-AnimatedBar -Label "Primary" -DurationSeconds $pingTimeoutSeconds
-        $pingResult1 = Receive-Job -Job $job1 -Wait -AutoRemoveJob
-        Write-Host "`r$(' ' * ($Host.UI.RawUI.WindowSize.Width -1))`r" -NoNewline
-        if ($pingResult1) {
-            $avgLatency1 = ($pingResult1 | Measure-Object -Property ResponseTime -Average).Average
-            $loss1 = (1 - ($pingResult1.Count / $pingCount)) * 100
-            Write-Host ("{0,-14} {1}" -f "Primary", "$($FG_GREEN)OK$($RESET)   loss=$($loss1)%   avg=$([math]::Round($avgLatency1))ms   $($DIM)($($server.Primary))$($RESET)")
-            $allResults.Add([pscustomobject]@{ Provider = $server.Provider; IP = $server.Primary; Loss = $loss1; Latency = [math]::Round($avgLatency1) })
-        }
-        else {
-            Write-Host ("{0,-14} {1}" -f "Primary", "$($FG_RED)UNREACHABLE$($RESET)   loss=100%   $($DIM)($($server.Primary))$($RESET)")
-        }
-
-        # Test Secondary IP
-        $job2 = Start-Job -ScriptBlock { 
-            param($ip, $count)
-            Test-Connection -ComputerName $ip -Count $count -ErrorAction SilentlyContinue 
-        } -ArgumentList $server.Secondary, $pingCount
-        Show-AnimatedBar -Label "Secondary" -DurationSeconds $pingTimeoutSeconds
-        $pingResult2 = Receive-Job -Job $job2 -Wait -AutoRemoveJob
-        Write-Host "`r$(' ' * ($Host.UI.RawUI.WindowSize.Width -1))`r" -NoNewline
-        if ($pingResult2) {
-            $avgLatency2 = ($pingResult2 | Measure-Object -Property ResponseTime -Average).Average
-            $loss2 = (1 - ($pingResult2.Count / $pingCount)) * 100
-            Write-Host ("{0,-14} {1}" -f "Secondary", "$($FG_GREEN)OK$($RESET)   loss=$($loss2)%   avg=$([math]::Round($avgLatency2))ms   $($DIM)($($server.Secondary))$($RESET)")
-            $allResults.Add([pscustomobject]@{ Provider = $server.Provider; IP = $server.Secondary; Loss = $loss2; Latency = [math]::Round($avgLatency2) })
-        }
-        else {
-            Write-Host ("{0,-14} {1}" -f "Secondary", "$($FG_RED)UNREACHABLE$($RESET)   loss=100%   $($DIM)($($server.Secondary))$($RESET)")
-        }
-        Write-Host ""
-    }
-
-    # 3. Summary Table
-    function Get-ProviderTags {
-        param ($Provider)
-        switch ($Provider) {
-            "Cloudflare" { "Speed, Privacy, Reliable" }
-            "Google" { "Speed, Reliable, Global" }
-            "Quad9" { "Malware-Protection, Privacy, Reliable" }
-            "OpenDNS" { "Stable, Filtering, Security" }
-            "AdGuard" { "Filtering, Privacy, Stable" }
-            "CleanBrowsing" { "Security, Family-Filtering, Stable" }
-            "Comodo" { "Security, Malware-Protection, Stable" }
-            "Verisign" { "Stable, Reliable, No-Redirection" }
-            "OpenNIC" { "Community, Privacy, Variable-Speed" }
-            default { "Reliable" }
+    
+    # Find max latency for scaling
+    $latencies = @()
+    Get-Content $TOP_3_RESULTS | ForEach-Object {
+        $parts = $_ -split ','
+        if ($parts.Length -eq 4) {
+            $latencies += [float]$parts[3]
         }
     }
-
-    $top3 = $allResults | Where-Object { $_.Loss -lt 100 } | Sort-Object -Property Latency | Select-Object -First 3
-    Write-Host "$($BOLD)$($FG_BLUE)Top 3 DNS — Summary Table$($RESET)"
-    $sep = "+----------------+------------------+----------+-------------------------------------------+"
-    Write-Host $sep
-    Write-Host ("| {0,-14} | {1,-16} | {2,-8} | {3,-41} |" -f "Provider", "IP", "Latency", "Details")
-    Write-Host $sep
-    foreach ($entry in $top3) {
-        $tags = Get-ProviderTags -Provider $entry.Provider
-        $latencyStr = "$($entry.Latency)ms"
-        Write-Host ("| {0,-14} | {1,-16} | {2,7} | {3,-41} |" -f $entry.Provider, $entry.IP, $latencyStr, $tags)
+    
+    $maxLat = ($latencies | Measure-Object -Maximum).Maximum
+    $maxLatInt = [int]$maxLat
+    
+    $rank = 1
+    Get-Content $TOP_3_RESULTS | ForEach-Object {
+        $parts = $_ -split ','
+        if ($parts.Length -eq 4) {
+            $pname, $pip, $ploss, $plat = $parts
+            
+            $medal, $color = switch ($rank) {
+                1 { "🥇", $FG_YELLOW }
+                2 { "🥈", $FG_WHITE }
+                3 { "🥉", $FG_BROWN }
+            }
+            
+            # Calculate bar length (inverse - shorter latency = longer bar)
+            $latInt = [int][float]$plat
+            $barLen = [Math]::Max(10, [Math]::Min(45, 50 - [Math]::Floor($latInt * 35 / $maxLatInt)))
+            $bar = "█" * $barLen
+            
+            # Performance rating based on latency
+            $rating = if ($latInt -lt 25) {
+                "$FG_GREEN${BOLD}BLAZING FAST$RESET"
+            } elseif ($latInt -lt 40) {
+                "$FG_YELLOW${BOLD}VERY FAST$RESET"
+            } elseif ($latInt -lt 60) {
+                "$FG_ORANGE${BOLD}FAST$RESET"
+            } else {
+                "$FG_RED${BOLD}GOOD$RESET"
+            }
+            
+            Center-Printf "$medal $BOLD%-12s$RESET $color$bar$RESET $FG_GREEN%6sms$RESET $rating" $pname $plat $rating
+            Center-Printf "    $FG_CYAN%s$RESET - $FG_WHITE%s$RESET" $pip (Get-ProviderTags $pname)
+            Write-Host ""
+            
+            $rank++
+        }
     }
-    Write-Host $sep
+    
+    # Winner celebration
+    $winnerLine = Get-Content $TOP_3_RESULTS | Select-Object -First 1
+    if ($winnerLine) {
+        $parts = $winnerLine -split ','
+        $firstName = $parts[0]
+        $firstLat = $parts[3]
+        [Console]::Beep(800, 100)
+        Center-Printf "⚡ $FG_YELLOW${BOLD}SPEED CHAMPION: $firstName leads with ${firstLat}ms response time!$RESET ⚡"
+        Center-Printf "$FG_GREEN🏆 Optimal DNS performance achieved! 🏆$RESET"
+    }
+    
     Write-Host ""
 }
 
-# --- Main Script Execution ---
-Ensure-Winfetch
-Start-Benchmark
+# --- DNS Provider Data ---
+$DNS_SERVERS = @(
+    "Cloudflare,1.1.1.1,1.0.0.1",
+    "Google,8.8.8.8,8.8.4.4",
+    "Quad9,9.9.9.9,149.112.112.112",
+    "OpenDNS,208.67.222.222,208.67.220.220",
+    "AdGuard,94.140.14.14,94.140.15.15",
+    "CleanBrowsing,185.228.168.9,185.228.169.9",
+    "Comodo,8.26.56.26,8.20.247.20",
+    "Verisign,64.6.64.6,64.6.65.6"
+)
 
+function Get-ProviderTags {
+    param([string]$Provider)
+    
+    switch ($Provider) {
+        "Cloudflare" { return "Speed, Privacy, Modern" }
+        "Google" { return "Speed, Reliable, Global" }
+        "Quad9" { return "Security, Malware-Protection, Privacy" }
+        "OpenDNS" { return "Stable, Filtering, Security" }
+        "AdGuard" { return "Ad-Filtering, Privacy, Stable" }
+        "CleanBrowsing" { return "Family-Filtering, Security, Stable" }
+        "Comodo" { return "Security, Malware-Protection, Stable" }
+        "Verisign" { return "Stable, Reliable, No-Redirection" }
+        default { return "General Purpose" }
+    }
+}
+
+# --- Main Execution ---
+Print-Header "System & Dependencies Check" $FG_MAGENTA
+Ensure-Dependencies
+
+# Show system info
+Write-Host ""
+if (Get-Command winfetch -ErrorAction SilentlyContinue) {
+    winfetch
+}
+
+# Display custom banner for the benchmark
+if (Get-Command figlet -ErrorAction SilentlyContinue) {
+    figlet "DNS BENCHMARK"
+} else {
+    Print-DoubleLineHeader "🚀 DNS BENCHMARK 🚀" $FG_CYAN
+}
+
+# START THE BOX for the benchmark
+Print-BoxTop
+$PING_COUNT = 5
+$PING_TIMEOUT_MS = 500
+$BAR_DURATION_MS = $PING_COUNT * $PING_TIMEOUT_MS + 500
+
+Box-PrintBlank
+Box-Print "$BOLD Mode:$RESET       $PING_COUNT probes per host"
+Box-Print "$BOLD Timeout:$RESET    ${PING_TIMEOUT_MS}ms per probe"
+Box-Print "$BOLD Targets:$RESET    $($DNS_SERVERS.Count) providers (primary + secondary)"
+Box-PrintBlank
+
+foreach ($entry in $DNS_SERVERS) {
+    $provider, $ip1, $ip2 = $entry -split ','
+    Print-BoxSeparator
+    
+    Box-PrintProviderHeader $provider
+    Box-PrintBlank
+    
+    # Test Primary IP
+    $job1 = Start-Job -ScriptBlock {
+        param($ip, $count, $timeout)
+        try {
+            # Ping with count and timeout
+            $results = Test-Connection -ComputerName $ip -Count $count -Quiet -TimeoutSeconds ($timeout / 1000)
+            if ($results) {
+                $fullResults = Test-Connection -ComputerName $ip -Count $count -TimeoutSeconds ($timeout / 1000)
+                $avg = ($fullResults | Measure-Object -Property ResponseTime -Average).Average
+                return @{ Success = $true; Avg = $avg; Loss = 0 }
+            } else {
+                return @{ Success = $false; Loss = 100 }
+            }
+        } catch {
+            return @{ Success = $false; Loss = 100 }
+        }
+    } -ArgumentList $ip1, $PING_COUNT, $PING_TIMEOUT_MS
+    
+    Animated-Bar "Primary" $PING_COUNT $BAR_DURATION_MS
+    $result1 = Receive-Job -Job $job1 -Wait
+    Remove-Job -Job $job1
+    
+    if ($result1.Success) {
+        Box-Printf "    %-9s $FG_GREEN✔ OK$RESET   avg=%-7sms loss=%-3s%% %s $FG_WHITE(%s)$RESET" `
+            "Primary" $result1.Avg $result1.Loss (Generate-LatencyBar $result1.Avg) $ip1
+        "$provider,$ip1,$($result1.Loss),$($result1.Avg)" | Add-Content $TMP_RESULTS
+    } else {
+        Box-Printf "    %-9s $FG_RED✖ UNREACHABLE$RESET   loss=%-3s%% $FG_WHITE(%s)$RESET" `
+            "Primary" $result1.Loss $ip1
+    }
+    
+    # Test Secondary IP
+    $job2 = Start-Job -ScriptBlock {
+        param($ip, $count, $timeout)
+        try {
+            $results = Test-Connection -ComputerName $ip -Count $count -Quiet -TimeoutSeconds ($timeout / 1000)
+            if ($results) {
+                $fullResults = Test-Connection -ComputerName $ip -Count $count -TimeoutSeconds ($timeout / 1000)
+                $avg = ($fullResults | Measure-Object -Property ResponseTime -Average).Average
+                return @{ Success = $true; Avg = $avg; Loss = 0 }
+            } else {
+                return @{ Success = $false; Loss = 100 }
+            }
+        } catch {
+            return @{ Success = $false; Loss = 100 }
+        }
+    } -ArgumentList $ip2, $PING_COUNT, $PING_TIMEOUT_MS
+    
+    Animated-Bar "Secondary" $PING_COUNT $BAR_DURATION_MS
+    $result2 = Receive-Job -Job $job2 -Wait
+    Remove-Job -Job $job2
+    
+    if ($result2.Success) {
+        Box-Printf "    %-9s $FG_GREEN✔ OK$RESET   avg=%-7sms loss=%-3s%% %s $FG_WHITE(%s)$RESET" `
+            "Secondary" $result2.Avg $result2.Loss (Generate-LatencyBar $result2.Avg) $ip2
+        "$provider,$ip2,$($result2.Loss),$($result2.Avg)" | Add-Content $TMP_RESULTS
+    } else {
+        Box-Printf "    %-9s $FG_RED✖ UNREACHABLE$RESET   loss=%-3s%% $FG_WHITE(%s)$RESET" `
+            "Secondary" $result2.Loss $ip2
+    }
+    Box-PrintBlank
+}
+
+Print-BoxBottom
+
+# --- Process and Display Final Summary ---
+if (Test-Path $TMP_RESULTS) {
+    Get-Content $TMP_RESULTS | Where-Object {
+        $parts = $_ -split ','
+        $parts.Length -eq 4 -and $parts[3] -match '^\d+(\.\d+)?$' -and [float]$parts[2] -lt 100
+    } | Set-Content $CLEAN_RESULTS
+    
+    Get-Content $CLEAN_RESULTS | Sort-Object { [float]($_ -split ',')[3] } | Select-Object -First 3 | Set-Content $TOP_3_RESULTS
+}
+
+# Display styled header for the results
+if (Get-Command figlet -ErrorAction SilentlyContinue) {
+    figlet "TOP 3 RESULTS"
+} else {
+    Print-DoubleLineHeader "🏆 TOP 3 RESULTS 🏆" $FG_GREEN
+}
+
+# Display the progress bar results
+Display-ProgressBars
+
+Write-Host ""
+
+# Cleanup temp files
+Cleanup
