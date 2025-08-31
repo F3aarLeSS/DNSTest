@@ -28,7 +28,7 @@ $script:FG_BRIGHT_WHITE = "`e[97m"
 # --- Global Variables & Cleanup ---
 $script:TERMINAL_COLS = [Console]::WindowWidth
 $script:BOX_WIDTH = 96
-$script:CENTER_OFFSET = [Math]::Max(0, [Math]::Floor(($TERMINAL_COLS - $BOX_WIDTH) / 2))
+$script:CENTER_OFFSET = [Math]::Max(0, ($TERMINAL_COLS - $BOX_WIDTH) / 2)
 
 # Create secure temporary files for results
 $script:TMP_RESULTS = [System.IO.Path]::GetTempFileName()
@@ -124,7 +124,6 @@ function Ensure-Dependencies {
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
             Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-            # Refresh environment path after installation
             $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [Environment]::GetEnvironmentVariable("PATH", "User")
         } catch {
             Write-Host ""
@@ -208,7 +207,7 @@ function Print-Header {
     )
     
     $titleWithSpaces = " $Title "
-    $padLen = [Math]::Max(0, [Math]::Floor(($BOX_WIDTH - $titleWithSpaces.Length) / 2))
+    $padLen = [Math]::Max(0, ($BOX_WIDTH - $titleWithSpaces.Length) / 2)
     $padding = "─" * $padLen
     $extraChar = if (($titleWithSpaces.Length + $padLen * 2) -lt $BOX_WIDTH) { "─" } else { "" }
     
@@ -271,7 +270,7 @@ function Box-PrintProviderHeader {
     $providerWithSpaces = " $ProviderName "
     $totalWidth = $BOX_WIDTH - 4
     $nameLen = $providerWithSpaces.Length
-    $padLen = [Math]::Max(0, [Math]::Floor(($totalWidth - $nameLen) / 2))
+    $padLen = [Math]::Max(0, ($totalWidth - $nameLen) / 2)
     $leftPad = "╌" * $padLen
     $rightPad = $leftPad
     if (($nameLen + $padLen * 2) -lt $totalWidth) {
@@ -317,7 +316,7 @@ function Animated-Bar {
     if ($width -lt 12) { $width = 12 }
     
     $sleepInterval = 30
-    $numFrames = [Math]::Floor($DurationMs / $sleepInterval)
+    $numFrames = $DurationMs / $sleepInterval
     $progressChar = "▰"
     $remainingChar = "-"
     $spinnerChars = @("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
@@ -377,7 +376,7 @@ function Display-ProgressBars {
             
             # Calculate bar length (inverse - shorter latency = longer bar)
             $latInt = [int][float]$plat
-            $barLen = [Math]::Max(10, [Math]::Min(45, 50 - [Math]::Floor($latInt * 35 / $maxLatInt)))
+            $barLen = [Math]::Max(10, [Math]::Min(45, 50 - ($latInt * 35 / $maxLatInt)))
             $bar = "█" * $barLen
             
             # Performance rating based on latency
@@ -411,6 +410,38 @@ function Display-ProgressBars {
     }
     
     Write-Host ""
+}
+
+# --- DNS Test Function ---
+function Test-DnsLatency {
+    param(
+        [string]$IpAddress,
+        [int]$Count,
+        [int]$TimeoutMs
+    )
+    
+    try {
+        $ping = Test-Connection -ComputerName $IpAddress -Count $Count -Quiet -TimeoutSeconds ($TimeoutMs / 1000)
+        if ($ping) {
+            $results = Test-Connection -ComputerName $IpAddress -Count $Count -TimeoutSeconds ($TimeoutMs / 1000)
+            $avgLatency = ($results | Measure-Object -Property ResponseTime -Average).Average
+            return @{
+                Success = $true
+                AverageLatency = $avgLatency
+                PacketLoss = 0
+            }
+        } else {
+            return @{
+                Success = $false
+                PacketLoss = 100
+            }
+        }
+    } catch {
+        return @{
+            Success = $false
+            PacketLoss = 100
+        }
+    }
 }
 
 # --- DNS Provider Data ---
@@ -481,7 +512,6 @@ foreach ($entry in $DNS_SERVERS) {
     $job1 = Start-Job -ScriptBlock {
         param($ip, $count, $timeout)
         try {
-            # Ping with count and timeout
             $results = Test-Connection -ComputerName $ip -Count $count -Quiet -TimeoutSeconds ($timeout / 1000)
             if ($results) {
                 $fullResults = Test-Connection -ComputerName $ip -Count $count -TimeoutSeconds ($timeout / 1000)
@@ -564,5 +594,5 @@ Display-ProgressBars
 
 Write-Host ""
 
-# Cleanup temp files
+# Cleanup
 Cleanup
