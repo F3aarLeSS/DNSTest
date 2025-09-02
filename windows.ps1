@@ -375,19 +375,40 @@ function Install-Winfetch {
 }
 
 function Invoke-Winfetch {
-    if (-not (Test-Path $Global:WinfetchPath)) {
-        if (-not (Install-Winfetch)) {
-            return
-        }
-    }
-    
+    param(
+        [switch]$NoCache  # If set, forces fresh download & in-memory run
+    )
+
     Write-Host ""
     Write-Centered "$($Global:Colors.Yellow)💻 Loading system information with Winfetch...$($Global:Colors.Reset)"
     Write-Host ""
-    
+
     try {
-        # Execute local winfetch script
-        & $Global:WinfetchPath
+        # Ensure CustomAscii exists
+        if (-not (Get-Variable -Name CustomAscii -Scope Global -ErrorAction SilentlyContinue)) {
+            $Global:CustomAscii = $null
+        }
+
+        # Temp cache path
+        $cachePath = "$env:TEMP\winfetch.ps1"
+
+        if ($NoCache -or -not (Test-Path $cachePath)) {
+            # Download latest Winfetch script
+            Write-Centered "$($Global:Colors.Cyan)⬇️ Downloading Winfetch...$($Global:Colors.Reset)"
+            (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content |
+                Out-File -FilePath $cachePath -Encoding UTF8
+        }
+
+        # Option 1: Run directly in memory (fresh download, no file saved)
+        if ($NoCache) {
+            $script = (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content
+            . ([scriptblock]::Create($script))
+        }
+        # Option 2: Run from cached copy
+        else {
+            . $cachePath
+        }
+
         Write-Host ""
     } catch {
         Write-Centered "$($Global:Colors.Red)❌ Error running Winfetch: $($_.Exception.Message)$($Global:Colors.Reset)"
@@ -395,6 +416,7 @@ function Invoke-Winfetch {
         Write-Host ""
     }
 }
+
 
 function Write-BoxTop { Write-Centered ("╭" + ("─" * ($Global:BoxWidth - 2)) + "╮") }
 function Write-BoxBottom { Write-Centered ("╰" + ("─" * ($Global:BoxWidth - 2)) + "╯") }
@@ -484,6 +506,10 @@ function Get-ProviderTags {
     }
 }
 
+# (script header stays the same)
+
+# … [all your existing functions above remain unchanged] …
+
 function Start-DNSBenchmark {
     # Clear previous results
     $Global:TempResults = @()
@@ -513,7 +539,7 @@ function Start-DNSBenchmark {
         Write-BoxProviderHeader $Server.Name
         Write-BoxBlank
         
-        # Test Primary DNS
+        # --- Primary DNS Test ---
         $Job = Start-Job -ScriptBlock { 
             param($DNSServer, $Count)
             $Latencies = @()
@@ -542,7 +568,7 @@ function Start-DNSBenchmark {
             Write-BoxLine "    Primary   $($Global:Colors.Red)✖ UNREACHABLE$($Global:Colors.Reset)   loss=100% $($Global:Colors.White)($($Server.Primary))$($Global:Colors.Reset)"
         }
         
-        # Test Secondary DNS
+        # --- Secondary DNS Test ---
         $Job = Start-Job -ScriptBlock { 
             param($DNSServer, $Count)
             $Latencies = @()
@@ -575,215 +601,33 @@ function Start-DNSBenchmark {
     }
     
     Write-BoxBottom
-    
-    # Process results
-    $Global:CleanResults = $Global:TempResults | Where-Object { $_.Loss -lt 100 -and $_.Latency -gt 0 }
-    $Global:Top3Results = $Global:CleanResults | Sort-Object Latency | Select-Object -First 3
-    
-    # Display results
     Write-Host ""
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Green)╔═══════════════════════════════════════╗$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Green)║        🏆 TOP 3 RESULTS 🏆            ║$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Green)╚═══════════════════════════════════════╝$($Global:Colors.Reset)"
-    
-    Show-PerformanceResults
-    Export-ResultsToDesktop
+    Write-Centered "$($Global:Colors.Green)✔ Benchmark completed successfully!$($Global:Colors.Reset)"
 }
 
-function Show-PerformanceResults {
-    if ($Global:Top3Results.Count -eq 0) {
-        Write-Centered "$($Global:Colors.Red)No reachable DNS servers were found during the test.$($Global:Colors.Reset)"
-        return
-    }
+# === Entry Point ===
+do {
+    Show-MainMenu
+    $choice = Read-Host
     
-    Write-Host ""
-    Write-Centered "$($Global:Colors.Cyan)$($Global:Colors.Bold)📊 DNS PERFORMANCE COMPARISON 📊$($Global:Colors.Reset)"
-    Write-Host ""
-    Write-Centered "$($Global:Colors.BrightWhite)Longer bars = Better performance (lower latency)$($Global:Colors.Reset)"
-    Write-Host ""
-    Write-Host ""
-    
-    $MaxLatency = ($Global:Top3Results | Measure-Object -Property Latency -Maximum).Maximum
-    
-    $Medals = @("🥇", "🥈", "🥉")
-    $Colors = @($Global:Colors.Yellow, $Global:Colors.White, $Global:Colors.Brown)
-    
-    for ($i = 0; $i -lt $Global:Top3Results.Count; $i++) {
-        $Result = $Global:Top3Results[$i]
-        $Medal = $Medals[$i]
-        $Color = $Colors[$i]
-        
-        # Calculate bar length (inverse - shorter latency = longer bar)
-        $BarLen = [Math]::Max(10, [Math]::Min(45, 50 - [Math]::Floor($Result.Latency * 35 / $MaxLatency)))
-        $Bar = "█" * $BarLen
-        
-        # Performance rating
-        if ($Result.Latency -lt 25) { $Rating = "$($Global:Colors.Green)$($Global:Colors.Bold)BLAZING FAST$($Global:Colors.Reset)" }
-        elseif ($Result.Latency -lt 40) { $Rating = "$($Global:Colors.Yellow)$($Global:Colors.Bold)VERY FAST$($Global:Colors.Reset)" }
-        elseif ($Result.Latency -lt 60) { $Rating = "$($Global:Colors.Orange)$($Global:Colors.Bold)FAST$($Global:Colors.Reset)" }
-        else { $Rating = "$($Global:Colors.Red)$($Global:Colors.Bold)GOOD$($Global:Colors.Reset)" }
-        
-        Write-Centered "$Medal $($Global:Colors.Bold)$($Result.Provider.PadRight(12))$($Global:Colors.Reset) $Color$Bar$($Global:Colors.Reset) $($Global:Colors.Green)$($Result.Latency.ToString().PadLeft(6))ms$($Global:Colors.Reset) $Rating"
-        Write-Centered "    $($Global:Colors.Cyan)$($Result.IP)$($Global:Colors.Reset) - $($Global:Colors.White)$(Get-ProviderTags $Result.Provider)$($Global:Colors.Reset)"
-        Write-Host ""
-    }
-    
-    # Winner celebration
-    if ($Global:Top3Results.Count -gt 0) {
-        $Winner = $Global:Top3Results[0]
-        Write-Host "`a"  # Beep
-        Write-Centered "⚡ $($Global:Colors.Yellow)$($Global:Colors.Bold)SPEED CHAMPION: $($Winner.Provider) leads with $($Winner.Latency)ms response time!$($Global:Colors.Reset) ⚡"
-        Write-Centered "$($Global:Colors.Green)🏆 Optimal DNS performance achieved! 🏆$($Global:Colors.Reset)"
-    }
-    
-    Write-Host ""
-}
-
-function Export-ResultsToDesktop {
-    $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $OutputPath = Join-Path $env:USERPROFILE "Desktop\dns_benchmark_$Timestamp.txt"
-    
-    $Output = @()
-    $Output += "Provider".PadRight(15) + "Primary".PadRight(15) + "Secondary".PadRight(15) + "Avg(ms)"
-    $Output += "--------".PadRight(15) + "-------".PadRight(15) + "---------".PadRight(15) + "-------"
-    
-    foreach ($Server in $Global:DNSServers) {
-        $Primary = $Global:TempResults | Where-Object { $_.Provider -eq $Server.Name -and $_.IP -eq $Server.Primary }
-        $Secondary = $Global:TempResults | Where-Object { $_.Provider -eq $Server.Name -and $_.IP -eq $Server.Secondary }
-        
-        $PrimaryLatency = if ($Primary) { $Primary.Latency } else { "timeout" }
-        $SecondaryLatency = if ($Secondary) { $Secondary.Latency } else { "timeout" }
-        
-        if ($Primary -and $Secondary) {
-            $AvgLatency = [Math]::Round(($Primary.Latency + $Secondary.Latency) / 2, 2)
-        } elseif ($Primary) {
-            $AvgLatency = $Primary.Latency
-        } elseif ($Secondary) {
-            $AvgLatency = $Secondary.Latency
-        } else {
-            $AvgLatency = "timeout"
-        }
-        
-        $Output += $Server.Name.PadRight(15) + $Server.Primary.PadRight(15) + $Server.Secondary.PadRight(15) + $AvgLatency
-    }
-    
-    $Output | Out-File -FilePath $OutputPath -Encoding UTF8
-    
-    # Windows notification
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        $NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
-        $NotifyIcon.Icon = [System.Drawing.SystemIcons]::Information
-        $NotifyIcon.Visible = $true
-        $NotifyIcon.ShowBalloonTip(5000, "DNS Benchmark", "DNS benchmark completed. Table saved to Desktop.", [System.Windows.Forms.ToolTipIcon]::Info)
-        $NotifyIcon.Dispose()
-    } catch { 
-        Write-Centered "$($Global:Colors.Green)📁 Results saved to: $OutputPath$($Global:Colors.Reset)"
-    }
-}
-
-function Show-EndMenu {
-    while ($true) {
-        Write-Host ""
-        Write-Host "$($Global:Colors.Green)1) Retest$($Global:Colors.Reset)"
-        Write-Host "$($Global:Colors.Red)2) Remove Winfetch Script$($Global:Colors.Reset)"
-        Write-Host "$($Global:Colors.Cyan)3) Quit$($Global:Colors.Reset)"
-        $Choice = Read-Host "Enter choice [1-3]"
-        
-        switch ($Choice) {
-            "1" { 
-                & $PSCommandPath
-                return
-            }
-            "2" { 
-                if (Test-Path $Global:WinfetchPath) {
-                    $Confirm = Read-Host "Are you sure you want to remove Winfetch script? (y/n)"
-                    if ($Confirm -eq "y" -or $Confirm -eq "Y") {
-                        Remove-Item -Path $Global:WinfetchPath -Force
-                        Write-Host "Winfetch script removed from: $Global:WinfetchPath"
-                    } else {
-                        Write-Host "Removal cancelled."
-                    }
-                } else {
-                    Write-Host "Winfetch script not found at: $Global:WinfetchPath"
-                }
-            }
-            "3" { 
-                Write-Host "Goodbye!"
-                return
-            }
-            default { 
-                Write-Host "Invalid option, please try again."
-            }
-        }
-    }
-}
-
-function Start-FullBenchmark {
-    Test-ComponentAvailability
-    Write-Centered "$($Global:Colors.Magenta)$($Global:Colors.Bold)═══ System & Dependencies Check ═══$($Global:Colors.Reset)"
-    
-    # Download and execute Winfetch from local file
-    Invoke-Winfetch
-    
-    Start-DNSBenchmark
-    Show-EndMenu
-}
-
-function Start-BasicBenchmark {
-    Write-Host ""
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)=== DNS BENCHMARK - DIRECT MODE ===$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Yellow)Skipping system info, proceeding directly to DNS testing...$($Global:Colors.Reset)"
-    Write-Host ""
-    
-    Start-DNSBenchmark
-    Show-EndMenu
-}
-
-function Handle-MenuChoice {
-    param([string]$Choice)
-    
-    switch ($Choice) {
+    switch ($choice) {
         "1" {
-            Write-Host "Starting full DNS benchmark with visual components..."
-            Start-FullBenchmark
-            return $true
+            Test-ComponentAvailability
+            Invoke-Winfetch
+            Start-DNSBenchmark
+            Pause
         }
         "2" {
-            Write-Host "Starting DNS benchmark (skipping system info)..."
-            Start-BasicBenchmark
-            return $true
+            Start-DNSBenchmark
+            Pause
         }
         "3" {
-            Write-Host "Thank you for using DNS Benchmark Tool. Goodbye!"
-            return $true
-        }
-        default {
-            Write-Centered "$($Global:Colors.Red)❌ Invalid option. Please enter 1, 2, or 3.$($Global:Colors.Reset)"
-            return $false
-        }
-    }
-}
-
-# Main execution
-function Main {
-    # Enable UTF-8 encoding if available
-    try {
-        if ($PSVersionTable.PSVersion.Major -ge 5) {
-            $null = [System.Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-        }
-    } catch { }
-    
-    while ($true) {
-        Show-MainMenu
-        $Choice = Read-Host
-        
-        if (Handle-MenuChoice $Choice) {
+            Write-Centered "$($Global:Colors.Red)👋 Exiting DNS Benchmark Tool...$($Global:Colors.Reset)"
             break
         }
-        Start-Sleep -Seconds 1
+        default {
+            Write-Centered "$($Global:Colors.Yellow)⚠️ Invalid choice. Please enter 1, 2, or 3.$($Global:Colors.Reset)"
+            Start-Sleep -Seconds 2
+        }
     }
-}
-
-# Start the application
-Main
+} while ($true)
