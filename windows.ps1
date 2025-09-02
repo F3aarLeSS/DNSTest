@@ -384,28 +384,35 @@ function Invoke-Winfetch {
     Write-Host ""
 
     try {
-        # Ensure CustomAscii exists
+        # Initialize global variables Winfetch may expect
         if (-not (Get-Variable -Name CustomAscii -Scope Global -ErrorAction SilentlyContinue)) {
             $Global:CustomAscii = $null
         }
-
-        # Temp cache path
-        $cachePath = "$env:TEMP\winfetch.ps1"
-
-        if ($NoCache -or -not (Test-Path $cachePath)) {
-            # Download latest Winfetch script
-            Write-Centered "$($Global:Colors.Cyan)⬇️ Downloading Winfetch...$($Global:Colors.Reset)"
-            (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content |
-                Out-File -FilePath $cachePath -Encoding UTF8
+        if (-not (Get-Variable -Name CustomPkgs -Scope Global -ErrorAction SilentlyContinue)) {
+            $Global:CustomPkgs = @()
         }
 
-        # Option 1: Run directly in memory (fresh download, no file saved)
+        # Initialize scoop variables to avoid errors
+        if (-not (Get-Variable -Name scooppkg -Scope Script -ErrorAction SilentlyContinue)) {
+            $script:scooppkg = @()
+        }
+        if (-not (Get-Variable -Name scoopapps -Scope Script -ErrorAction SilentlyContinue)) {
+            $script:scoopapps = @()
+        }
+
         if ($NoCache) {
-            $script = (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content
-            . ([scriptblock]::Create($script))
-        }
-        # Option 2: Run from cached copy
-        else {
+            # Run Winfetch directly in memory
+            Write-Centered "$($Global:Colors.Cyan)⬇️ Downloading and running Winfetch in-memory...$($Global:Colors.Reset)"
+            $scriptContent = (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content
+            . ([scriptblock]::Create($scriptContent))
+        } else {
+            # Cache path
+            $cachePath = "$env:TEMP\winfetch.ps1"
+            if (-not (Test-Path $cachePath)) {
+                Write-Centered "$($Global:Colors.Cyan)⬇️ Downloading Winfetch...$($Global:Colors.Reset)"
+                (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing).Content |
+                    Out-File -FilePath $cachePath -Encoding UTF8
+            }
             . $cachePath
         }
 
@@ -416,6 +423,7 @@ function Invoke-Winfetch {
         Write-Host ""
     }
 }
+
 
 
 function Write-BoxTop { Write-Centered ("╭" + ("─" * ($Global:BoxWidth - 2)) + "╮") }
