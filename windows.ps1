@@ -19,6 +19,41 @@ $Global:TempResults = @()
 $Global:CleanResults = @()
 $Global:Top3Results = @()
 
+# Add at the top of your script after the color definitions
+function Initialize-Terminal {
+    # Check if running in supported terminal
+    $SupportsAnsi = $false
+    
+    try {
+        # Check for Windows Terminal, PowerShell 7+, or VT support
+        if ($env:WT_SESSION -or $PSVersionTable.PSVersion.Major -ge 7 -or $Host.UI.SupportsVirtualTerminal) {
+            $SupportsAnsi = $true
+        }
+        
+        # Try to enable VT processing
+        if (-not $SupportsAnsi -and $Host.Name -eq "ConsoleHost") {
+            # VT enabling code here (from above)
+            $SupportsAnsi = $true
+        }
+    } catch {
+        $SupportsAnsi = $false
+    }
+    
+    # Disable colors if ANSI not supported
+    if (-not $SupportsAnsi) {
+        Write-Warning "Terminal doesn't support ANSI colors. Using plain text mode."
+        $Global:Colors = @{
+            Reset = ""; Bold = ""; Red = ""; Green = ""; Yellow = "";
+            Blue = ""; Magenta = ""; Cyan = ""; White = ""; BrightWhite = "";
+            Gray = ""; Orange = ""; Brown = ""
+        }
+    }
+}
+
+# Call this after color definitions
+Initialize-Terminal
+
+
 # ANSI Color Codes for PowerShell
 $Global:Colors = @{
     Reset = "`e[0m"
@@ -40,6 +75,9 @@ $Global:Colors = @{
 $Global:TerminalWidth = try { $Host.UI.RawUI.WindowSize.Width } catch { 120 }
 $Global:BoxWidth = 96
 $Global:CenterOffset = [Math]::Max(0, [Math]::Floor(($Global:TerminalWidth - $Global:BoxWidth) / 2))
+
+# Winfetch path
+$Global:WinfetchPath = "$env:USERPROFILE\winfetch.ps1"
 
 # DNS Servers Configuration
 $Global:DNSServers = @(
@@ -79,11 +117,11 @@ function Show-MainMenu {
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║  $($Global:Colors.Green)$($Global:Colors.Bold)1)$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan) DNS Benchmark with Visual Components                                                  ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Full system check with Winfetch system info$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                        ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Downloads Winfetch if needed (one time only)$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                       ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Enhanced visuals with colors and animations$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                       ║$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Component status check and system info display$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                     ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║  $($Global:Colors.Yellow)$($Global:Colors.Bold)2)$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan) Only DNS Benchmark                                                                   ║$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Skip system info and component checks$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                             ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Skip system info and Winfetch setup$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                               ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Same visual DNS testing with full progress bars$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                   ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Faster startup, same beautiful benchmark display$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                 ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
@@ -135,13 +173,18 @@ function Test-ComponentAvailability {
         
         switch ($Component.Command) {
             "winfetch" { 
-                try {
-                    $null = Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing -TimeoutSec 3
-                    $Status = "AVAILABLE"; $StatusColor = $Global:Colors.Green
-                    $Details = "Online access ready"
-                } catch {
-                    $Status = "UNAVAILABLE"; $StatusColor = $Global:Colors.Red
-                    $Details = "Network required"
+                if (Test-Path $Global:WinfetchPath) {
+                    $Status = "INSTALLED"; $StatusColor = $Global:Colors.Green
+                    $Details = "Local script ready"
+                } else {
+                    try {
+                        $null = Test-NetConnection -ComputerName "raw.githubusercontent.com" -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue
+                        $Status = "AVAILABLE"; $StatusColor = $Global:Colors.Yellow
+                        $Details = "Download required"
+                    } catch {
+                        $Status = "UNAVAILABLE"; $StatusColor = $Global:Colors.Red
+                        $Details = "Network required"
+                    }
                 }
             }
             "powershell" { 
@@ -184,21 +227,64 @@ function Test-ComponentAvailability {
     Write-Host ""
 }
 
+function Install-Winfetch {
+    Write-Host ""
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)╔══════════════════════════════════════════════════════════════════════════════════════════════╗$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                            🚀 WINFETCH SETUP 🚀                                             ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)╚══════════════════════════════════════════════════════════════════════════════════════════════╝$($Global:Colors.Reset)"
+    Write-Host ""
+    
+    if (Test-Path $Global:WinfetchPath) {
+        Write-Centered "$($Global:Colors.Green)✅ Winfetch already installed at: $Global:WinfetchPath$($Global:Colors.Reset)"
+        return $true
+    }
+    
+    Write-Centered "$($Global:Colors.Yellow)📦 Downloading Winfetch from GitHub...$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Blue)   This is a one-time download, subsequent runs will use the local copy.$($Global:Colors.Reset)"
+    Write-Host ""
+    
+    try {
+        # Show progress during download
+        Write-Centered "$($Global:Colors.Cyan)🔄 Downloading to: $Global:WinfetchPath$($Global:Colors.Reset)"
+        
+        # Use official Winfetch installation method
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile $Global:WinfetchPath -UseBasicParsing -ErrorAction Stop
+        
+        Write-Host ""
+        Write-Centered "$($Global:Colors.Green)🎉 Winfetch downloaded successfully!$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Green)📁 Saved to: $Global:WinfetchPath$($Global:Colors.Reset)"
+        return $true
+        
+    } catch {
+        Write-Host ""
+        Write-Centered "$($Global:Colors.Red)❌ Failed to download Winfetch.$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Yellow)⚠️  Error: $($_.Exception.Message)$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Blue)   Continuing without system info display...$($Global:Colors.Reset)"
+        return $false
+    }
+}
+
 function Invoke-Winfetch {
+    if (-not (Test-Path $Global:WinfetchPath)) {
+        if (-not (Install-Winfetch)) {
+            return
+        }
+    }
+    
     Write-Host ""
     Write-Centered "$($Global:Colors.Yellow)💻 Loading system information with Winfetch...$($Global:Colors.Reset)"
     Write-Host ""
     
     try {
-        # Execute winfetch directly from web without saving to disk
-        $WinfetchScript = (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing -TimeoutSec 10).Content
-        Invoke-Expression $WinfetchScript
+        # Execute local winfetch script
+        & $Global:WinfetchPath
         Write-Host ""
     } catch {
-        Write-Centered "$($Global:Colors.Red)❌ Could not load Winfetch. Continuing without system info...$($Global:Colors.Reset)"
-        Write-Centered "$($Global:Colors.Yellow)⚠️ Check your internet connection for enhanced system display.$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Red)❌ Error running Winfetch: $($_.Exception.Message)$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Yellow)⚠️ Continuing without system info display...$($Global:Colors.Reset)"
         Write-Host ""
-        Start-Sleep -Seconds 2
     }
 }
 
@@ -273,32 +359,6 @@ function Show-AnimatedBar {
     
     $FullBar = $ProgressChar * $Width
     Write-Host ("`r" + (" " * $Global:CenterOffset) + "│   $($Global:Colors.Green)✔$($Global:Colors.Reset) $($Label.PadRight(10)) [$FullBar] $TotalSteps/$TotalSteps")
-}
-
-function Test-DNSLatency {
-    param([string]$DNSServer, [int]$Count = 5)
-    
-    $Latencies = @()
-    for ($i = 0; $i -lt $Count; $i++) {
-        try {
-            $Start = Get-Date
-            $null = Resolve-DnsName -Name "google.com" -Server $DNSServer -ErrorAction Stop
-            $End = Get-Date
-            $Latency = ($End - $Start).TotalMilliseconds
-            $Latencies += $Latency
-        } catch {
-            return @{ Success = $false; AverageMs = 0; Loss = 100 }
-        }
-    }
-    
-    if ($Latencies.Count -eq 0) {
-        return @{ Success = $false; AverageMs = 0; Loss = 100 }
-    }
-    
-    $Average = ($Latencies | Measure-Object -Average).Average
-    $Loss = [Math]::Round(100 * ($Count - $Latencies.Count) / $Count, 1)
-    
-    return @{ Success = $true; AverageMs = [Math]::Round($Average, 2); Loss = $Loss }
 }
 
 function Get-ProviderTags {
@@ -516,8 +576,9 @@ function Show-EndMenu {
     while ($true) {
         Write-Host ""
         Write-Host "$($Global:Colors.Green)1) Retest$($Global:Colors.Reset)"
-        Write-Host "$($Global:Colors.Cyan)2) Quit$($Global:Colors.Reset)"
-        $Choice = Read-Host "Enter choice [1-2]"
+        Write-Host "$($Global:Colors.Red)2) Remove Winfetch Script$($Global:Colors.Reset)"
+        Write-Host "$($Global:Colors.Cyan)3) Quit$($Global:Colors.Reset)"
+        $Choice = Read-Host "Enter choice [1-3]"
         
         switch ($Choice) {
             "1" { 
@@ -525,6 +586,19 @@ function Show-EndMenu {
                 return
             }
             "2" { 
+                if (Test-Path $Global:WinfetchPath) {
+                    $Confirm = Read-Host "Are you sure you want to remove Winfetch script? (y/n)"
+                    if ($Confirm -eq "y" -or $Confirm -eq "Y") {
+                        Remove-Item -Path $Global:WinfetchPath -Force
+                        Write-Host "Winfetch script removed from: $Global:WinfetchPath"
+                    } else {
+                        Write-Host "Removal cancelled."
+                    }
+                } else {
+                    Write-Host "Winfetch script not found at: $Global:WinfetchPath"
+                }
+            }
+            "3" { 
                 Write-Host "Goodbye!"
                 return
             }
@@ -539,7 +613,7 @@ function Start-FullBenchmark {
     Test-ComponentAvailability
     Write-Centered "$($Global:Colors.Magenta)$($Global:Colors.Bold)═══ System & Dependencies Check ═══$($Global:Colors.Reset)"
     
-    # Execute Winfetch directly from web
+    # Download and execute Winfetch from local file
     Invoke-Winfetch
     
     Start-DNSBenchmark
