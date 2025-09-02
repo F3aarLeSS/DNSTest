@@ -1,45 +1,156 @@
 <#
 .SYNOPSIS
-    DNS Benchmark Tool for Windows
+    DNS Benchmark Tool for Windows - Universal Terminal Compatible
 .DESCRIPTION
     A PowerShell script to test DNS server latency and display results with enhanced visuals.
     Supports both full mode with system info and basic mode for quick testing.
+    Compatible with all terminal types including legacy PowerShell consoles.
 .NOTES
-    Version: 1.0
+    Version: 2.0
     Author: DNS Benchmark Tool
     Requires: PowerShell 5.1+
+    Compatible: Windows PowerShell 5.1, PowerShell 7+, Windows Terminal, VS Code Terminal
 #>
 
 # Set strict mode and error handling
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
+# === UNIVERSAL TERMINAL COMPATIBILITY ===
+$script:SupportsANSI = $false
+$script:IsLegacyConsole = $false
+
+function Initialize-TerminalCapabilities {
+    param()
+    
+    try {
+        # Method 1: Check built-in PowerShell capability
+        if ($Host.UI.SupportsVirtualTerminal -eq $true) {
+            $script:SupportsANSI = $true
+            Write-Verbose "ANSI support detected via Host.UI.SupportsVirtualTerminal"
+            return
+        }
+        
+        # Method 2: Check for Windows Terminal
+        if ($env:WT_SESSION -or $env:WT_PROFILE_ID) {
+            $script:SupportsANSI = $true
+            Write-Verbose "Windows Terminal detected"
+            return
+        }
+        
+        # Method 3: Check PowerShell version (7+ has better ANSI support)
+        if ($PSVersionTable.PSVersion.Major -ge 7) {
+            $script:SupportsANSI = $true
+            Write-Verbose "PowerShell 7+ detected"
+            return
+        }
+        
+        # Method 4: Try to enable VT Processing on Windows Console
+        if ($PSVersionTable.Platform -eq 'Win32NT' -or [System.Environment]::OSVersion.Platform -eq 'Win32NT' -or -not (Get-Variable -Name 'IsLinux' -ErrorAction SilentlyContinue)) {
+            $script:IsLegacyConsole = $true
+            if (Enable-VTProcessing) {
+                $script:SupportsANSI = $true
+                Write-Verbose "VT Processing enabled successfully"
+                return
+            }
+        }
+        
+        Write-Verbose "ANSI support not available - using fallback mode"
+        
+    } catch {
+        Write-Verbose "Error during terminal capability detection: $($_.Exception.Message)"
+    }
+}
+
+function Enable-VTProcessing {
+    try {
+        # Add Windows API functions
+        $VTSignature = @'
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr GetStdHandle(int nStdHandle);
+            
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+            
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+'@
+        
+        # Only add the type if it doesn't exist
+        if (-not ([System.Management.Automation.PSTypeName]'Win32.Console').Type) {
+            Add-Type -MemberDefinition $VTSignature -Name 'Console' -Namespace 'Win32' -ErrorAction SilentlyContinue | Out-Null
+        }
+        
+        # Get stdout handle
+        $stdOutHandle = [Win32.Console]::GetStdHandle(-11) # STD_OUTPUT_HANDLE
+        
+        # Get current console mode
+        $currentMode = 0
+        if ([Win32.Console]::GetConsoleMode($stdOutHandle, [ref]$currentMode)) {
+            # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004)
+            $newMode = $currentMode -bor 0x0004
+            return [Win32.Console]::SetConsoleMode($stdOutHandle, $newMode)
+        }
+        
+        return $false
+    } catch {
+        return $false
+    }
+}
+
+function Set-ColorSupport {
+    if ($script:SupportsANSI) {
+        # Enable full ANSI color support
+        try {
+            [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+        } catch {
+            # Fallback for older PowerShell versions
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        }
+        
+        # Define ANSI colors
+        $Global:Colors = @{
+            Reset = "`e[0m"
+            Bold = "`e[1m"
+            Red = "`e[31m"
+            Green = "`e[32m"
+            Yellow = "`e[33m"
+            Blue = "`e[34m"
+            Magenta = "`e[35m"
+            Cyan = "`e[36m"
+            White = "`e[37m"
+            BrightWhite = "`e[97m"
+            Gray = "`e[90m"
+            Orange = "`e[38;5;214m"
+            Brown = "`e[38;5;130m"
+        }
+        return
+    }
+    
+    # Disable all colors by making them empty strings
+    $Global:Colors = @{
+        Reset = ""; Bold = ""; Red = ""; Green = ""; Yellow = "";
+        Blue = ""; Magenta = ""; Cyan = ""; White = ""; BrightWhite = "";
+        Gray = ""; Orange = ""; Brown = ""
+    }
+}
+
+# Initialize terminal capabilities
+Initialize-TerminalCapabilities
+Set-ColorSupport
+
 # Global Variables
 $Global:TempResults = @()
 $Global:CleanResults = @()
 $Global:Top3Results = @()
 
-# ANSI Color Codes for PowerShell
-$Global:Colors = @{
-    Reset = "`e[0m"
-    Bold = "`e[1m"
-    Red = "`e[31m"
-    Green = "`e[32m"
-    Yellow = "`e[33m"
-    Blue = "`e[34m"
-    Magenta = "`e[35m"
-    Cyan = "`e[36m"
-    White = "`e[37m"
-    BrightWhite = "`e[97m"
-    Gray = "`e[90m"
-    Orange = "`e[38;5;214m"
-    Brown = "`e[38;5;130m"
-}
-
 # Terminal dimensions
 $Global:TerminalWidth = try { $Host.UI.RawUI.WindowSize.Width } catch { 120 }
 $Global:BoxWidth = 96
 $Global:CenterOffset = [Math]::Max(0, [Math]::Floor(($Global:TerminalWidth - $Global:BoxWidth) / 2))
+
+# Winfetch path
+$Global:WinfetchPath = "$env:USERPROFILE\winfetch.ps1"
 
 # DNS Servers Configuration
 $Global:DNSServers = @(
@@ -66,6 +177,20 @@ function Write-CenteredFormat {
     Write-Centered $Text
 }
 
+function Show-TerminalInfo {
+    Write-Host ""
+    if ($script:SupportsANSI) {
+        Write-Centered "$($Global:Colors.Green)✅ Enhanced visual mode enabled$($Global:Colors.Reset)"
+        if ($script:IsLegacyConsole) {
+            Write-Centered "$($Global:Colors.Yellow)ℹ️  VT Processing enabled for legacy console$($Global:Colors.Reset)"
+        }
+    } else {
+        Write-Centered "$($Global:Colors.Yellow)⚠️  Running in compatibility mode (no colors)$($Global:Colors.Reset)"
+        Write-Centered "   For enhanced visuals, use Windows Terminal or PowerShell 7+"
+    }
+    Write-Host ""
+}
+
 function Show-MainMenu {
     Clear-Host
     Write-Host ""
@@ -79,11 +204,11 @@ function Show-MainMenu {
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║  $($Global:Colors.Green)$($Global:Colors.Bold)1)$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan) DNS Benchmark with Visual Components                                                  ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Full system check with Winfetch system info$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                        ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Downloads Winfetch if needed (one time only)$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                       ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Enhanced visuals with colors and animations$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                       ║$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Component status check and system info display$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                     ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║  $($Global:Colors.Yellow)$($Global:Colors.Bold)2)$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan) Only DNS Benchmark                                                                   ║$($Global:Colors.Reset)"
-    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Skip system info and component checks$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                             ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Skip system info and Winfetch setup$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                               ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Same visual DNS testing with full progress bars$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                   ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Faster startup, same beautiful benchmark display$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                 ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
@@ -91,7 +216,9 @@ function Show-MainMenu {
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║     $($Global:Colors.White)• Exit the application$($Global:Colors.Reset)$($Global:Colors.Bold)$($Global:Colors.Cyan)                                                              ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)╚══════════════════════════════════════════════════════════════════════════════════════════════╝$($Global:Colors.Reset)"
-    Write-Host ""
+    
+    Show-TerminalInfo
+    
     Write-Centered "$($Global:Colors.Blue)Enter your choice [1-3]: $($Global:Colors.Reset)" -NoNewline
 }
 
@@ -135,13 +262,23 @@ function Test-ComponentAvailability {
         
         switch ($Component.Command) {
             "winfetch" { 
-                try {
-                    $null = Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing -TimeoutSec 3
-                    $Status = "AVAILABLE"; $StatusColor = $Global:Colors.Green
-                    $Details = "Online access ready"
-                } catch {
-                    $Status = "UNAVAILABLE"; $StatusColor = $Global:Colors.Red
-                    $Details = "Network required"
+                if (Test-Path $Global:WinfetchPath) {
+                    $Status = "INSTALLED"; $StatusColor = $Global:Colors.Green
+                    $Details = "Local script ready"
+                } else {
+                    try {
+                        $TestConnection = Test-NetConnection -ComputerName "raw.githubusercontent.com" -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+                        if ($TestConnection) {
+                            $Status = "AVAILABLE"; $StatusColor = $Global:Colors.Yellow
+                            $Details = "Download required"
+                        } else {
+                            $Status = "UNAVAILABLE"; $StatusColor = $Global:Colors.Red
+                            $Details = "Network required"
+                        }
+                    } catch {
+                        $Status = "UNAVAILABLE"; $StatusColor = $Global:Colors.Red
+                        $Details = "Network required"
+                    }
                 }
             }
             "powershell" { 
@@ -158,17 +295,27 @@ function Test-ComponentAvailability {
             }
             "internet" {
                 try {
-                    $null = Test-Connection "8.8.8.8" -Count 1 -Quiet -TimeoutSec 3
-                    $Status = "CONNECTED"; $StatusColor = $Global:Colors.Green
-                    $Details = "Internet ready"
+                    $TestResult = Test-Connection "8.8.8.8" -Count 1 -Quiet -TimeoutSec 3 -ErrorAction SilentlyContinue
+                    if ($TestResult) {
+                        $Status = "CONNECTED"; $StatusColor = $Global:Colors.Green
+                        $Details = "Internet ready"
+                    } else {
+                        $Status = "OFFLINE"; $StatusColor = $Global:Colors.Red
+                        $Details = "No connection"
+                    }
                 } catch {
                     $Status = "OFFLINE"; $StatusColor = $Global:Colors.Red
                     $Details = "No connection"
                 }
             }
             "terminal" { 
-                $Status = "ACTIVE"; $StatusColor = $Global:Colors.Cyan
-                $Details = "$($Global:TerminalWidth)x$($Host.UI.RawUI.WindowSize.Height)"
+                if ($script:SupportsANSI) {
+                    $Status = "ENHANCED"; $StatusColor = $Global:Colors.Green
+                    $Details = "$($Global:TerminalWidth)x$($Host.UI.RawUI.WindowSize.Height) ANSI"
+                } else {
+                    $Status = "BASIC"; $StatusColor = $Global:Colors.Yellow
+                    $Details = "$($Global:TerminalWidth)x$($Host.UI.RawUI.WindowSize.Height) Text"
+                }
             }
         }
         
@@ -180,25 +327,72 @@ function Test-ComponentAvailability {
     Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Green)🎉 System ready for DNS benchmarking!$($Global:Colors.Reset)"
     Write-Host ""
     Write-Centered "$($Global:Colors.Blue)Press any key to continue...$($Global:Colors.Reset)"
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    try {
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    } catch {
+        Read-Host
+    }
     Write-Host ""
 }
 
+function Install-Winfetch {
+    Write-Host ""
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)╔══════════════════════════════════════════════════════════════════════════════════════════════╗$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                            🚀 WINFETCH SETUP 🚀                                             ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)║                                                                                              ║$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Bold)$($Global:Colors.Cyan)╚══════════════════════════════════════════════════════════════════════════════════════════════╝$($Global:Colors.Reset)"
+    Write-Host ""
+    
+    if (Test-Path $Global:WinfetchPath) {
+        Write-Centered "$($Global:Colors.Green)✅ Winfetch already installed at: $Global:WinfetchPath$($Global:Colors.Reset)"
+        return $true
+    }
+    
+    Write-Centered "$($Global:Colors.Yellow)📦 Downloading Winfetch from GitHub...$($Global:Colors.Reset)"
+    Write-Centered "$($Global:Colors.Blue)   This is a one-time download, subsequent runs will use the local copy.$($Global:Colors.Reset)"
+    Write-Host ""
+    
+    try {
+        # Show progress during download
+        Write-Centered "$($Global:Colors.Cyan)🔄 Downloading to: $Global:WinfetchPath$($Global:Colors.Reset)"
+        
+        # Use official Winfetch installation method
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile $Global:WinfetchPath -UseBasicParsing -ErrorAction Stop
+        
+        Write-Host ""
+        Write-Centered "$($Global:Colors.Green)🎉 Winfetch downloaded successfully!$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Green)📁 Saved to: $Global:WinfetchPath$($Global:Colors.Reset)"
+        return $true
+        
+    } catch {
+        Write-Host ""
+        Write-Centered "$($Global:Colors.Red)❌ Failed to download Winfetch.$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Yellow)⚠️  Error: $($_.Exception.Message)$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Blue)   Continuing without system info display...$($Global:Colors.Reset)"
+        return $false
+    }
+}
+
 function Invoke-Winfetch {
+    if (-not (Test-Path $Global:WinfetchPath)) {
+        if (-not (Install-Winfetch)) {
+            return
+        }
+    }
+    
     Write-Host ""
     Write-Centered "$($Global:Colors.Yellow)💻 Loading system information with Winfetch...$($Global:Colors.Reset)"
     Write-Host ""
     
     try {
-        # Execute winfetch directly from web without saving to disk
-        $WinfetchScript = (Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -UseBasicParsing -TimeoutSec 10).Content
-        Invoke-Expression $WinfetchScript
+        # Execute local winfetch script
+        & $Global:WinfetchPath
         Write-Host ""
     } catch {
-        Write-Centered "$($Global:Colors.Red)❌ Could not load Winfetch. Continuing without system info...$($Global:Colors.Reset)"
-        Write-Centered "$($Global:Colors.Yellow)⚠️ Check your internet connection for enhanced system display.$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Red)❌ Error running Winfetch: $($_.Exception.Message)$($Global:Colors.Reset)"
+        Write-Centered "$($Global:Colors.Yellow)⚠️ Continuing without system info display...$($Global:Colors.Reset)"
         Write-Host ""
-        Start-Sleep -Seconds 2
     }
 }
 
@@ -273,32 +467,6 @@ function Show-AnimatedBar {
     
     $FullBar = $ProgressChar * $Width
     Write-Host ("`r" + (" " * $Global:CenterOffset) + "│   $($Global:Colors.Green)✔$($Global:Colors.Reset) $($Label.PadRight(10)) [$FullBar] $TotalSteps/$TotalSteps")
-}
-
-function Test-DNSLatency {
-    param([string]$DNSServer, [int]$Count = 5)
-    
-    $Latencies = @()
-    for ($i = 0; $i -lt $Count; $i++) {
-        try {
-            $Start = Get-Date
-            $null = Resolve-DnsName -Name "google.com" -Server $DNSServer -ErrorAction Stop
-            $End = Get-Date
-            $Latency = ($End - $Start).TotalMilliseconds
-            $Latencies += $Latency
-        } catch {
-            return @{ Success = $false; AverageMs = 0; Loss = 100 }
-        }
-    }
-    
-    if ($Latencies.Count -eq 0) {
-        return @{ Success = $false; AverageMs = 0; Loss = 100 }
-    }
-    
-    $Average = ($Latencies | Measure-Object -Average).Average
-    $Loss = [Math]::Round(100 * ($Count - $Latencies.Count) / $Count, 1)
-    
-    return @{ Success = $true; AverageMs = [Math]::Round($Average, 2); Loss = $Loss }
 }
 
 function Get-ProviderTags {
@@ -509,15 +677,18 @@ function Export-ResultsToDesktop {
         $NotifyIcon.Visible = $true
         $NotifyIcon.ShowBalloonTip(5000, "DNS Benchmark", "DNS benchmark completed. Table saved to Desktop.", [System.Windows.Forms.ToolTipIcon]::Info)
         $NotifyIcon.Dispose()
-    } catch { }
+    } catch { 
+        Write-Centered "$($Global:Colors.Green)📁 Results saved to: $OutputPath$($Global:Colors.Reset)"
+    }
 }
 
 function Show-EndMenu {
     while ($true) {
         Write-Host ""
         Write-Host "$($Global:Colors.Green)1) Retest$($Global:Colors.Reset)"
-        Write-Host "$($Global:Colors.Cyan)2) Quit$($Global:Colors.Reset)"
-        $Choice = Read-Host "Enter choice [1-2]"
+        Write-Host "$($Global:Colors.Red)2) Remove Winfetch Script$($Global:Colors.Reset)"
+        Write-Host "$($Global:Colors.Cyan)3) Quit$($Global:Colors.Reset)"
+        $Choice = Read-Host "Enter choice [1-3]"
         
         switch ($Choice) {
             "1" { 
@@ -525,6 +696,19 @@ function Show-EndMenu {
                 return
             }
             "2" { 
+                if (Test-Path $Global:WinfetchPath) {
+                    $Confirm = Read-Host "Are you sure you want to remove Winfetch script? (y/n)"
+                    if ($Confirm -eq "y" -or $Confirm -eq "Y") {
+                        Remove-Item -Path $Global:WinfetchPath -Force
+                        Write-Host "Winfetch script removed from: $Global:WinfetchPath"
+                    } else {
+                        Write-Host "Removal cancelled."
+                    }
+                } else {
+                    Write-Host "Winfetch script not found at: $Global:WinfetchPath"
+                }
+            }
+            "3" { 
                 Write-Host "Goodbye!"
                 return
             }
@@ -539,7 +723,7 @@ function Start-FullBenchmark {
     Test-ComponentAvailability
     Write-Centered "$($Global:Colors.Magenta)$($Global:Colors.Bold)═══ System & Dependencies Check ═══$($Global:Colors.Reset)"
     
-    # Execute Winfetch directly from web
+    # Download and execute Winfetch from local file
     Invoke-Winfetch
     
     Start-DNSBenchmark
@@ -583,12 +767,12 @@ function Handle-MenuChoice {
 
 # Main execution
 function Main {
-    # Enable ANSI colors in Windows Terminal
-    if ($PSVersionTable.PSVersion.Major -ge 5) {
-        try {
+    # Enable UTF-8 encoding if available
+    try {
+        if ($PSVersionTable.PSVersion.Major -ge 5) {
             $null = [System.Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-        } catch { }
-    }
+        }
+    } catch { }
     
     while ($true) {
         Show-MainMenu
